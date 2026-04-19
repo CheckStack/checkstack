@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "checkstack.fullname" . }}-worker
+  labels:
+    {{- include "checkstack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "checkstack.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "checkstack.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          command: ["python", "-m", "app.workers.uptime_worker"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "checkstack.fullname" . }}-config
+                  key: DATABASE_URL
+            - name: CHECK_INTERVAL_SECONDS
+              value: {{ .Values.worker.checkIntervalSeconds | quote }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}

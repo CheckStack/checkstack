@@ -1,0 +1,61 @@
+nameOverride: ""
+fullnameOverride: ""
+
+api:
+  replicaCount: 1
+  image:
+    repository: checkstack/api
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+worker:
+  replicaCount: 1
+  image:
+    repository: checkstack/api
+    tag: latest
+    pullPolicy: IfNotPresent
+  checkIntervalSeconds: 15
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+web:
+  replicaCount: 1
+  image:
+    repository: checkstack/web
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+database:
+  url: "postgresql+psycopg://postgres:postgres@checkstack-postgres:5432/checkstack"
+
+ingress:
+  enabled: false
+  className: ""
+  host: checkstack.example.com
+  annotations: {}
+  tls: []
