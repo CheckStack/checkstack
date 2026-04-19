@@ -19,5 +19,6 @@ class Incident(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     monitor = relationship("Monitor", back_populates="incidents")

@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.tag import Tag, monitor_tags
 
 
 class Monitor(Base):
@@ -16,6 +17,7 @@ class Monitor(Base):
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     failure_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    alerts_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tls_cert_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -28,3 +30,13 @@ class Monitor(Base):
 
     check_results = relationship("CheckResult", back_populates="monitor", cascade="all, delete-orphan")
     incidents = relationship("Incident", back_populates="monitor", cascade="all, delete-orphan")
+    tags: Mapped[list[Tag]] = relationship(
+        Tag,
+        secondary=monitor_tags,
+        back_populates="monitors",
+    )
+    alert_configs = relationship(
+        "AlertConfig",
+        back_populates="monitor",
+        cascade="all, delete-orphan",
+    )

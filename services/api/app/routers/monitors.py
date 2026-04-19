@@ -1,49 +1,137 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.check_result import CheckResult
 from app.models.monitor import Monitor
-from app.schemas.monitor import CheckResultRead, MonitorCreate, MonitorRead, SlaResponse
+from app.models.tag import Tag
+from app.schemas.monitor import (
+    CheckResultRead,
+    MonitorCreate,
+    MonitorRead,
+    MonitorUpdate,
+    SlaResponse,
+)
+from app.routers.serializers import load_monitors_eager, to_monitor_read
+from app.services.latency_stats import compute_latency_stats
 from app.services.sla import compute_sla
 
 router = APIRouter(prefix="/monitors", tags=["monitors"])
 
 
 @router.post("", response_model=MonitorRead)
-def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> Monitor:
+def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> MonitorRead:
     monitor = Monitor(
         name=payload.name,
         url=str(payload.url),
         interval_seconds=payload.interval_seconds,
         timeout_seconds=payload.timeout_seconds,
         failure_threshold=payload.failure_threshold,
+        alerts_enabled=payload.alerts_enabled,
     )
     db.add(monitor)
+    db.flush()
+    if payload.tag_ids:
+        tags = db.query(Tag).filter(Tag.id.in_(set(payload.tag_ids))).all()
+        if len(tags) != len(set(payload.tag_ids)):
+            raise HTTPException(status_code=400, detail="one or more tag_ids not found")
+        monitor.tags = tags
     db.commit()
     db.refresh(monitor)
-    return monitor
+    m2 = (
+        db.query(Monitor)
+        .options(joinedload(Monitor.tags))
+        .filter(Monitor.id == monitor.id)
+        .one()
+    )
+    return to_monitor_read(db, m2)
 
 
 @router.get("", response_model=list[MonitorRead])
-def list_monitors(db: Session = Depends(get_db)) -> list[Monitor]:
-    return db.query(Monitor).order_by(Monitor.id.asc()).all()
+def list_monitors(
+    tag_id: int | None = Query(default=None, description="filter by tag"),
+    db: Session = Depends(get_db),
+) -> list[MonitorRead]:
+    if tag_id is not None:
+        mlist = (
+            db.query(Monitor)
+            .options(joinedload(Monitor.tags))
+            .join(Monitor.tags)
+            .filter(Tag.id == tag_id)
+            .order_by(Monitor.id)
+            .distinct()
+            .all()
+        )
+    else:
+        mlist = load_monitors_eager(db)
+    return [to_monitor_read(db, m) for m in mlist]
 
 
-@router.get("/{monitor_id}", response_model=MonitorRead)
-def get_monitor(monitor_id: int, db: Session = Depends(get_db)) -> Monitor:
+@router.get("/{monitor_id}/stats", response_model=dict)
+def get_monitor_stats(
+    monitor_id: int,
+    window: str = Query(default="24h", pattern="^(24h|7d)$"),
+    db: Session = Depends(get_db),
+) -> dict:
     monitor = db.get(Monitor, monitor_id)
     if not monitor:
         raise HTTPException(status_code=404, detail="monitor not found")
-    return monitor
+    l = compute_latency_stats(db, monitor_id, window)
+    s = compute_sla(db, monitor_id, window)
+    return {**l, "sla": s}
+
+
+@router.patch("/{monitor_id}", response_model=MonitorRead)
+def update_monitor(
+    monitor_id: int, payload: MonitorUpdate, db: Session = Depends(get_db)
+) -> MonitorRead:
+    m = (
+        db.query(Monitor)
+        .options(joinedload(Monitor.tags))
+        .filter(Monitor.id == monitor_id)
+        .one_or_none()
+    )
+    if not m:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    d = payload.model_dump(exclude_unset=True)
+    tids = d.pop("tag_ids", None)
+    for k, v in d.items():
+        setattr(m, k, v)
+    if tids is not None:
+        tags = db.query(Tag).filter(Tag.id.in_(tids)).all()
+        if len(tags) != len(set(tids)):
+            raise HTTPException(status_code=400, detail="one or more tag_ids not found")
+        m.tags = tags
+    db.add(m)
+    db.commit()
+    m2 = (
+        db.query(Monitor)
+        .options(joinedload(Monitor.tags))
+        .filter(Monitor.id == monitor_id)
+        .one()
+    )
+    return to_monitor_read(db, m2)
+
+
+@router.get("/{monitor_id}", response_model=MonitorRead)
+def get_monitor(monitor_id: int, db: Session = Depends(get_db)) -> MonitorRead:
+    m = (
+        db.query(Monitor)
+        .options(joinedload(Monitor.tags))
+        .filter(Monitor.id == monitor_id)
+        .one_or_none()
+    )
+    if not m:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    return to_monitor_read(db, m)
 
 
 @router.delete("/{monitor_id}", status_code=204)
 def delete_monitor(monitor_id: int, db: Session = Depends(get_db)) -> None:
-    monitor = db.get(Monitor, monitor_id)
-    if not monitor:
+    m = db.get(Monitor, monitor_id)
+    if not m:
         raise HTTPException(status_code=404, detail="monitor not found")
-    db.delete(monitor)
+    db.delete(m)
     db.commit()
 
 
@@ -53,8 +141,8 @@ def list_checks(
     db: Session = Depends(get_db),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[CheckResult]:
-    monitor = db.get(Monitor, monitor_id)
-    if not monitor:
+    m = db.get(Monitor, monitor_id)
+    if not m:
         raise HTTPException(status_code=404, detail="monitor not found")
     return (
         db.query(CheckResult)
@@ -67,8 +155,8 @@ def list_checks(
 
 @router.get("/{monitor_id}/sla", response_model=SlaResponse)
 def get_sla(monitor_id: int, window: str = Query(default="24h"), db: Session = Depends(get_db)) -> dict:
-    monitor = db.get(Monitor, monitor_id)
-    if not monitor:
+    m = db.get(Monitor, monitor_id)
+    if not m:
         raise HTTPException(status_code=404, detail="monitor not found")
     if window not in ("24h", "7d"):
         raise HTTPException(status_code=400, detail="window must be 24h or 7d")

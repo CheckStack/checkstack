@@ -1,3 +1,4 @@
+import app.models  # noqa: F401
 import asyncio
 import logging
 from datetime import UTC, datetime
@@ -7,8 +8,9 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.models.check_result import CheckResult
+from app.models.incident import Incident
 from app.models.monitor import Monitor
-from app.db_migrate import ensure_monitor_tls_columns
+from app.db_migrate import run_migrations
 from app.services.checker import check_url
 from app.services.incidents import maybe_create_incident, resolve_open_incidents
 from app.services.tls import probe_tls_certificate
@@ -62,6 +64,7 @@ async def run_check_for_monitor(db: Session, monitor: Monitor, now: datetime) ->
         monitor.tls_cert_checked_at = None
         monitor.tls_cert_probe_error = None
 
+    new_inc: Incident | None = None
     if result["ok"]:
         monitor.consecutive_failures = 0
         resolved = resolve_open_incidents(db, monitor.id)
@@ -69,16 +72,23 @@ async def run_check_for_monitor(db: Session, monitor: Monitor, now: datetime) ->
             log.info("resolved %s open incident(s) for monitor %s", resolved, monitor.id)
     else:
         monitor.consecutive_failures += 1
-        incident = maybe_create_incident(
+        new_inc = maybe_create_incident(
             db,
             monitor,
             status_code=result["status_code"],
             error_message=result["error_message"],
         )
-        if incident:
-            log.warning("opened incident %s for monitor %s", incident.id, monitor.id)
+        if new_inc:
+            log.warning("opened incident %s for monitor %s", new_inc.id, monitor.id)
 
     db.commit()
+    if new_inc is not None and new_inc.id is not None:
+        from app.services.alerting import try_notify_new_incident
+
+        try:
+            await try_notify_new_incident(new_inc.id)
+        except Exception:  # noqa: BLE001
+            log.exception("incident %s: alert delivery failed", new_inc.id)
 
 
 async def run_once() -> None:
@@ -97,7 +107,7 @@ async def run_once() -> None:
 async def schedule_checks() -> None:
     logging.basicConfig(level=logging.INFO)
     Base.metadata.create_all(bind=engine)
-    ensure_monitor_tls_columns(engine)
+    run_migrations(engine)
     log.info("uptime worker started (interval %ss)", settings.check_interval_seconds)
     while True:
         try:

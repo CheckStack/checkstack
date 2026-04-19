@@ -63,4 +63,6 @@ def resolve_open_incidents(db: Session, monitor_id: int) -> int:
     for inc in rows:
         inc.status = "resolved"
         inc.resolved_at = now
+        if inc.started_at:
+            inc.duration_seconds = int((now - inc.started_at).total_seconds())
     return len(rows)
