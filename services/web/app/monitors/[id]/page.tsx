@@ -15,6 +15,14 @@ import {
 
 import type { CheckResult, Monitor, Sla } from "@/lib/api";
 import { apiUrl, fetchChecks, fetchMonitors, fetchSla } from "@/lib/api";
+import { certUrgency, certUrgencyClass, daysUntilExpiry } from "@/lib/cert";
+
+function TlsDaysRemaining({ expiresAt }: { expiresAt: string }) {
+  const d = daysUntilExpiry(expiresAt);
+  if (d === null) return null;
+  const text = d < 0 ? "Certificate is expired." : `${d} full day(s) remaining`;
+  return <div className={certUrgencyClass(certUrgency(d))}>{text}</div>;
+}
 
 export default function MonitorDetailPage() {
   const params = useParams<{ id: string }>();
@@ -99,6 +107,36 @@ export default function MonitorDetailPage() {
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-xl border border-white/10 bg-surface-card p-4 md:col-span-3">
+          <div className="text-xs uppercase tracking-wide text-slate-500">TLS certificate</div>
+          {monitor?.url.toLowerCase().startsWith("https://") ? (
+            <div className="mt-2 space-y-1 text-sm">
+              {monitor.tls_cert_expires_at ? (
+                <>
+                  <div className="text-lg font-semibold text-white">
+                    Expires {new Date(monitor.tls_cert_expires_at).toLocaleString()}
+                  </div>
+                  <TlsDaysRemaining expiresAt={monitor.tls_cert_expires_at} />
+                  {monitor.tls_cert_subject ? (
+                    <div className="text-xs text-slate-400">Subject: {monitor.tls_cert_subject}</div>
+                  ) : null}
+                  {monitor.tls_cert_checked_at ? (
+                    <div className="text-xs text-slate-500">
+                      Last inspected {new Date(monitor.tls_cert_checked_at).toLocaleString()}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="text-slate-400">No certificate data yet (waiting for worker).</div>
+              )}
+              {monitor.tls_cert_probe_error ? (
+                <div className="text-xs text-rose-200">Probe: {monitor.tls_cert_probe_error}</div>
+              ) : null}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-slate-400">TLS inspection runs only for https:// monitors.</p>
+          )}
+        </div>
         <div className="rounded-xl border border-white/10 bg-surface-card p-4">
           <div className="text-xs uppercase tracking-wide text-slate-500">SLA (24h)</div>
           <div className="mt-2 text-2xl font-semibold text-white">

@@ -8,8 +8,10 @@ from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.models.check_result import CheckResult
 from app.models.monitor import Monitor
+from app.db_migrate import ensure_monitor_tls_columns
 from app.services.checker import check_url
 from app.services.incidents import maybe_create_incident, resolve_open_incidents
+from app.services.tls import probe_tls_certificate
 
 log = logging.getLogger("checkstack.worker")
 
@@ -22,7 +24,17 @@ def _should_run_check(monitor: Monitor, now: datetime) -> bool:
 
 
 async def run_check_for_monitor(db: Session, monitor: Monitor, now: datetime) -> None:
-    result = await check_url(monitor.url, timeout_seconds=float(monitor.timeout_seconds))
+    timeout = float(monitor.timeout_seconds)
+    is_https = monitor.url.lower().startswith("https://")
+    if is_https:
+        result, tls_info = await asyncio.gather(
+            check_url(monitor.url, timeout_seconds=timeout),
+            probe_tls_certificate(monitor.url, timeout_seconds=timeout),
+        )
+    else:
+        result = await check_url(monitor.url, timeout_seconds=timeout)
+        tls_info = None
+
     check = CheckResult(
         monitor_id=monitor.id,
         ok=result["ok"],
@@ -35,6 +47,20 @@ async def run_check_for_monitor(db: Session, monitor: Monitor, now: datetime) ->
 
     monitor.last_checked_at = now
     monitor.last_status = "up" if result["ok"] else "down"
+
+    if is_https and tls_info is not None:
+        monitor.tls_cert_checked_at = now
+        if tls_info.error:
+            monitor.tls_cert_probe_error = tls_info.error[:2048]
+        else:
+            monitor.tls_cert_probe_error = None
+            monitor.tls_cert_expires_at = tls_info.expires_at
+            monitor.tls_cert_subject = tls_info.subject
+    else:
+        monitor.tls_cert_expires_at = None
+        monitor.tls_cert_subject = None
+        monitor.tls_cert_checked_at = None
+        monitor.tls_cert_probe_error = None
 
     if result["ok"]:
         monitor.consecutive_failures = 0
@@ -71,6 +97,7 @@ async def run_once() -> None:
 async def schedule_checks() -> None:
     logging.basicConfig(level=logging.INFO)
     Base.metadata.create_all(bind=engine)
+    ensure_monitor_tls_columns(engine)
     log.info("uptime worker started (interval %ss)", settings.check_interval_seconds)
     while True:
         try:

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import type { Incident, Monitor, Sla } from "@/lib/api";
+import { certUrgency, certUrgencyClass, daysUntilExpiry } from "@/lib/cert";
 import {
   createMonitor,
   deleteMonitor,
@@ -92,8 +93,8 @@ export default function HomePage() {
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold text-white">Overview</h1>
         <p className="max-w-2xl text-sm text-slate-400">
-          Add HTTP endpoints, watch live status, and track 24-hour SLA. Incidents open automatically after repeated
-          failures.
+          Add HTTP or HTTPS endpoints, watch live status, track 24-hour SLA, and see TLS certificate expiry for HTTPS
+          URLs. Incidents open automatically after repeated failures.
         </p>
       </header>
 
@@ -179,6 +180,7 @@ export default function HomePage() {
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">SLA (24h)</th>
+                <th className="px-4 py-3">TLS expiry</th>
                 <th className="px-4 py-3">Failures</th>
                 <th className="px-4 py-3">Last check</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -187,7 +189,7 @@ export default function HomePage() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-400" colSpan={6}>
+                  <td className="px-4 py-6 text-slate-400" colSpan={7}>
                     No monitors yet. Add one above to start collecting uptime.
                   </td>
                 </tr>
@@ -203,6 +205,9 @@ export default function HomePage() {
                     </td>
                     <td className="px-4 py-3 text-slate-200">
                       {sla24 ? `${sla24.uptime_percent.toFixed(2)}%` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      <CertExpirySummary monitor={monitor} />
                     </td>
                     <td className="px-4 py-3 text-slate-200">{monitor.consecutive_failures}</td>
                     <td className="px-4 py-3 text-xs text-slate-400">
@@ -304,4 +309,37 @@ function StatusPill({ status }: { status: string | null }) {
     return <span className="text-rose-300">● Down</span>;
   }
   return <span className="text-slate-500">● Unknown</span>;
+}
+
+function CertExpirySummary({ monitor }: { monitor: Monitor }) {
+  if (!monitor.url.toLowerCase().startsWith("https://")) {
+    return <span className="text-slate-500">n/a</span>;
+  }
+  if (!monitor.tls_cert_expires_at && monitor.tls_cert_probe_error) {
+    return (
+      <span className="text-rose-300" title={monitor.tls_cert_probe_error}>
+        error
+      </span>
+    );
+  }
+  if (!monitor.tls_cert_expires_at) {
+    return <span className="text-slate-500">…</span>;
+  }
+  const days = daysUntilExpiry(monitor.tls_cert_expires_at);
+  const u = certUrgency(days);
+  const line1 = new Date(monitor.tls_cert_expires_at).toLocaleDateString();
+  const line2 = days === null ? "" : days < 0 ? "expired" : `${days}d left`;
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-1 font-medium text-slate-100">
+        {line1}
+        {monitor.tls_cert_probe_error ? (
+          <span className="text-amber-300" title={monitor.tls_cert_probe_error}>
+            !
+          </span>
+        ) : null}
+      </div>
+      {line2 ? <div className={certUrgencyClass(u)}>{line2}</div> : null}
+    </div>
+  );
 }

@@ -4,12 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
+from app.db_migrate import ensure_monitor_tls_columns
 from app.routers import health, incidents, monitors
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_monitor_tls_columns(engine)
     yield
 
 

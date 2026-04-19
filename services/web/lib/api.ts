@@ -27,6 +27,10 @@ export type Monitor = {
   consecutive_failures: number;
   last_status: string | null;
   last_checked_at: string | null;
+  tls_cert_expires_at: string | null;
+  tls_cert_subject: string | null;
+  tls_cert_checked_at: string | null;
+  tls_cert_probe_error: string | null;
   created_at: string;
 };
 

@@ -5,7 +5,7 @@ CheckStack is an open source, Kubernetes native uptime monitoring and SLA tracki
 ## What ships today
 
 - **API** (`services/api`): FastAPI service for monitors, check history, SLA windows (24h / 7d), and incidents.
-- **Worker** (`services/api`): Async uptime poller that records results, opens incidents after consecutive failures, and resolves them when checks recover.
+- **Worker** (`services/api`): Async uptime poller that records results, probes **TLS certificate expiry** for `https://` monitors (leaf cert, no chain validation), opens incidents after consecutive failures, and resolves them when checks recover.
 - **Web** (`services/web`): Next.js dashboard with monitor management, SLA cards, latency charting, and incident actions.
 - **Infra**: Docker Compose for local installs, a Helm chart under `infra/helm/checkstack`, and sample Postgres manifests in `infra/k8s/postgres.yaml`.
 

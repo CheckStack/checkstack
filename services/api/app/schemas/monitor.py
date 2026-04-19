@@ -21,6 +21,10 @@ class MonitorRead(BaseModel):
     consecutive_failures: int
     last_status: str | None
     last_checked_at: datetime | None
+    tls_cert_expires_at: datetime | None = None
+    tls_cert_subject: str | None = None
+    tls_cert_checked_at: datetime | None = None
+    tls_cert_probe_error: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
