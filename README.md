@@ -17,7 +17,7 @@ make up
 
 Then open `http://localhost:3000` for the dashboard and `http://localhost:8000/healthz` for API health.
 
-The UI calls the API through same-origin `/api` rewrites. Compose wires `INTERNAL_API_URL=http://api:8000` so the browser never needs direct access to port 8000.
+The UI calls the API through same-origin `/api/...`, proxied by the Next server using **runtime** `INTERNAL_API_URL` (for example `http://api:8000` in Compose). That value is read per request, so you do not need web image rebuilds when the internal API hostname changes.
 
 ## Kubernetes (Helm)
 
