@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
+from cryptography import x509
+
 log = logging.getLogger("checkstack.tls")
 
 
@@ -38,6 +40,19 @@ def _parse_not_after(cert: dict[str, Any]) -> datetime | None:
     return dt
 
 
+def _parse_der_leaf(der: bytes) -> tuple[datetime | None, str | None]:
+    """Parse leaf certificate DER into (not_valid_after_utc, subject string)."""
+    cert = x509.load_der_x509_certificate(der)
+    na = getattr(cert, "not_valid_after_utc", None)
+    if na is not None:
+        expires = na if na.tzinfo is not None else na.replace(tzinfo=UTC)
+    else:
+        legacy = cert.not_valid_after
+        expires = legacy.replace(tzinfo=UTC) if legacy.tzinfo is None else legacy.astimezone(UTC)
+    subject = cert.subject.rfc4514_string() or None
+    return expires, subject
+
+
 @dataclass
 class TlsCertInfo:
     expires_at: datetime | None
@@ -57,6 +72,7 @@ async def probe_tls_certificate(url: str, timeout_seconds: float) -> TlsCertInfo
     port = parsed.port or 443
 
     # Read leaf certificate for expiry even if chain validation would fail (monitoring use case).
+    # With CERT_NONE, getpeercert(binary_form=False) returns {} per Python docs — use DER instead.
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -71,11 +87,14 @@ async def probe_tls_certificate(url: str, timeout_seconds: float) -> TlsCertInfo
         ssl_obj = writer.get_extra_info("ssl_object")
         if ssl_obj is None:
             return TlsCertInfo(None, None, "TLS handshake did not produce a session")
-        cert = ssl_obj.getpeercert()
-        if not cert:
+        der = ssl_obj.getpeercert(binary_form=True)
+        if not der:
             return TlsCertInfo(None, None, "no peer certificate returned")
-        expires = _parse_not_after(cert)
-        subject = _subject_from_peercert(cert)
+        try:
+            expires, subject = _parse_der_leaf(der)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("failed to parse peer DER cert: %s", exc)
+            return TlsCertInfo(None, None, f"certificate parse error: {exc}"[:500])
         return TlsCertInfo(expires, subject, None)
     except TimeoutError:
         return TlsCertInfo(None, None, "tls probe timeout")
