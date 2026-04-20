@@ -150,39 +150,57 @@ def ensure_alert_config_table(engine: Engine) -> None:
 
 def ensure_uptime_log_table(engine: Engine) -> None:
     insp = inspect(engine)
-    if insp.has_table("uptime_log"):
-        return
     is_pg = engine.dialect.name == "postgresql"
     with engine.begin() as conn:
+        if not insp.has_table("uptime_log"):
+            if is_pg:
+                conn.execute(
+                    text(
+                        """
+                    CREATE TABLE IF NOT EXISTS uptime_log (
+                        id SERIAL PRIMARY KEY,
+                        monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                        status VARCHAR(8) NOT NULL,
+                        response_time_ms DOUBLE PRECISION NULL,
+                        checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        error_message TEXT NULL
+                    );
+                """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                    CREATE TABLE IF NOT EXISTS uptime_log (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                        status VARCHAR(8) NOT NULL,
+                        response_time_ms FLOAT NULL,
+                        checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        error_message TEXT NULL
+                    );
+                """
+                    )
+                )
+
         if is_pg:
             conn.execute(
                 text(
-                    """
-                CREATE TABLE IF NOT EXISTS uptime_log (
-                    id SERIAL PRIMARY KEY,
-                    monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
-                    status VARCHAR(8) NOT NULL,
-                    response_time_ms DOUBLE PRECISION NULL,
-                    checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    error_message TEXT NULL
-                );
-            """
+                    "CREATE INDEX IF NOT EXISTS ix_uptime_log_monitor_checked_at ON uptime_log (monitor_id, checked_at);"
                 )
+            )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_uptime_log_checked_at ON uptime_log (checked_at);")
             )
         else:
             conn.execute(
                 text(
-                    """
-                CREATE TABLE IF NOT EXISTS uptime_log (
-                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                    monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
-                    status VARCHAR(8) NOT NULL,
-                    response_time_ms FLOAT NULL,
-                    checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    error_message TEXT NULL
-                );
-            """
+                    "CREATE INDEX IF NOT EXISTS ix_uptime_log_monitor_checked_at ON uptime_log (monitor_id, checked_at);"
                 )
+            )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_uptime_log_checked_at ON uptime_log (checked_at);")
             )
 
 

@@ -42,7 +42,11 @@ def test_monitor_crud(client: TestClient) -> None:
     listed = client.get("/monitors").json()
     assert len(listed) == 1
 
-    sla = client.get(f"/monitors/{mid}/sla", params={"window": "24h"}).json()
+    metrics = client.get(f"/monitors/{mid}/metrics", params={"range": "24h"})
+    assert metrics.status_code == 200
+    assert metrics.json() == []
+
+    sla = client.get(f"/monitors/{mid}/sla", params={"window": "1h"}).json()
     assert sla["total_checks"] == 0
     assert sla["uptime_percent"] == 100.0
 
