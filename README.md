@@ -5,8 +5,8 @@ CheckStack is an open source, Kubernetes native uptime monitoring and SLA tracki
 ## What ships today
 
 - **API** (`services/api`): FastAPI service for monitors, check history, SLA windows (24h / 7d), and incidents.
-- **Worker** (`services/api`): Async uptime poller that records results, probes **TLS certificate expiry** for `https://` monitors (leaf cert, no chain validation), opens incidents after consecutive failures, and resolves them when checks recover.
-- **Web** (`services/web`): Next.js dashboard with monitor management, SLA cards, latency charting, and incident actions.
+- **Worker** (`services/api`): Async uptime poller with retries/timeouts that records each check in both `check_results` and `uptime_log`, probes **TLS certificate expiry** for `https://` monitors (leaf cert, no chain validation), opens incidents after consecutive failures, and resolves them after sustained recovery (with debounce protection).
+- **Web** (`services/web`): Next.js dashboard with monitor management (including assigning existing tags and creating comma-separated new tags inline), SLA cards, latency charting, and incident actions.
 - **Infra**: Docker Compose for local installs, a Helm chart under `infra/helm/checkstack`, and sample Postgres manifests in `infra/k8s/postgres.yaml`.
 
 ## Quick start (Docker Compose)
@@ -36,6 +36,11 @@ Environment variables are read by `services/api/app/config.py`. Common keys:
 
 - `DATABASE_URL` (required outside the bundled Compose file defaults)
 - `CHECK_INTERVAL_SECONDS` (worker loop cadence; monitors still respect per-monitor intervals)
+- `CHECK_TIMEOUT_SECONDS` (default request timeout for checks, unless monitor timeout overrides it)
+- `CHECK_RETRY_ATTEMPTS` (retry attempts per check before a monitor is marked down)
+- `INCIDENT_OPEN_AFTER_FAILURES` (global consecutive failure threshold to open incidents; default `3`)
+- `INCIDENT_CLOSE_AFTER_SUCCESSES` (consecutive success threshold to close incidents; default `2`)
+- `INCIDENT_DEBOUNCE_SECONDS` (minimum seconds between incident state transitions to reduce flapping)
 
 ## Development
 

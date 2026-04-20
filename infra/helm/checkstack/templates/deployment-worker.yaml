@@ -31,5 +31,15 @@ spec:
                   key: DATABASE_URL
             - name: CHECK_INTERVAL_SECONDS
               value: {{ .Values.worker.checkIntervalSeconds | quote }}
+            - name: CHECK_TIMEOUT_SECONDS
+              value: {{ .Values.worker.checkTimeoutSeconds | quote }}
+            - name: CHECK_RETRY_ATTEMPTS
+              value: {{ .Values.worker.checkRetryAttempts | quote }}
+            - name: INCIDENT_OPEN_AFTER_FAILURES
+              value: {{ .Values.worker.incidentOpenAfterFailures | quote }}
+            - name: INCIDENT_CLOSE_AFTER_SUCCESSES
+              value: {{ .Values.worker.incidentCloseAfterSuccesses | quote }}
+            - name: INCIDENT_DEBOUNCE_SECONDS
+              value: {{ .Values.worker.incidentDebounceSeconds | quote }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}

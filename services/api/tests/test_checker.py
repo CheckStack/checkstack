@@ -15,6 +15,7 @@ async def test_check_url_success() -> None:
     assert out["ok"] is True
     assert out["status_code"] == 200
     assert out["error_message"] is None
+    assert out["attempts"] == 1
 
 
 @pytest.mark.asyncio
@@ -24,6 +25,12 @@ async def test_check_url_http_error() -> None:
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
-        out = await check_url("https://example.test/", timeout_seconds=5.0, client=client)
+        out = await check_url(
+            "https://example.test/",
+            timeout_seconds=5.0,
+            retry_attempts=3,
+            client=client,
+        )
     assert out["ok"] is False
     assert out["status_code"] == 500
+    assert out["attempts"] == 3

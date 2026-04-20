@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Incident, Monitor, Sla, Tag } from "@/lib/api";
 import { certUrgency, certUrgencyClass, daysUntilExpiry } from "@/lib/cert";
 import {
+  createTag,
   createMonitor,
   deleteMonitor,
   fetchIncidents,
@@ -29,6 +30,7 @@ export default function HomePage() {
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [selectedNewTagIds, setSelectedNewTagIds] = useState<number[]>([]);
+  const [newTagsInput, setNewTagsInput] = useState("");
   const [tagFilterId, setTagFilterId] = useState<number | null>(null);
 
   const openIncidents = useMemo(() => incidents.filter((i) => i.status === "open").length, [incidents]);
@@ -76,6 +78,40 @@ export default function HomePage() {
     e.preventDefault();
     setError(null);
     try {
+      const normalizedNewTagNames = Array.from(
+        new Set(
+          newTagsInput
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        ),
+      );
+      let knownTags = allTags;
+      const typedTagIds: number[] = [];
+      for (const tagName of normalizedNewTagNames) {
+        const existing = knownTags.find((t) => t.name.toLowerCase() === tagName.toLowerCase());
+        if (existing) {
+          typedTagIds.push(existing.id);
+          continue;
+        }
+        try {
+          const created = await createTag(tagName);
+          knownTags = [...knownTags, created];
+          typedTagIds.push(created.id);
+        } catch {
+          // If tag creation fails (for example race: already created), refresh and re-match.
+          const refreshed = await fetchTags();
+          knownTags = refreshed;
+          const matched = refreshed.find((t) => t.name.toLowerCase() === tagName.toLowerCase());
+          if (matched) {
+            typedTagIds.push(matched.id);
+          } else {
+            throw new Error(`Failed to create tag: ${tagName}`);
+          }
+        }
+      }
+      const mergedTagIds = Array.from(new Set([...selectedNewTagIds, ...typedTagIds]));
+
       await createMonitor({
         name,
         url,
@@ -83,12 +119,13 @@ export default function HomePage() {
         timeout_seconds: 10,
         failure_threshold: 3,
         alerts_enabled: alertsEnabled,
-        tag_ids: selectedNewTagIds,
+        tag_ids: mergedTagIds,
       });
       setName("");
       setUrl("https://");
       setIntervalSeconds(60);
       setSelectedNewTagIds([]);
+      setNewTagsInput("");
       setAlertsEnabled(true);
       await refresh();
     } catch (err) {
@@ -161,8 +198,17 @@ export default function HomePage() {
           </label>
           <div className="md:col-span-4 space-y-2">
             <span className="text-xs uppercase tracking-wide text-slate-500">Tags</span>
+            <label className="block space-y-1 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Add new tags (comma-separated)</span>
+              <input
+                className="w-full rounded-md border border-white/10 bg-surface-muted px-3 py-2 text-sm outline-none ring-accent/30 focus:ring"
+                onChange={(e) => setNewTagsInput(e.target.value)}
+                placeholder="prod, api, billing"
+                value={newTagsInput}
+              />
+            </label>
             <div className="flex flex-wrap gap-2">
-              {allTags.length === 0 ? <span className="text-sm text-slate-500">No tags yet. Create with POST /tags (see EXAMPLE_API.md)</span> : null}
+              {allTags.length === 0 ? <span className="text-sm text-slate-500">No existing tags yet.</span> : null}
               {allTags.map((t) => (
                 <label className="flex items-center gap-1.5 text-sm text-slate-300" key={t.id}>
                   <input
