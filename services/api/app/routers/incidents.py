@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.incident import Incident
 from app.models.monitor import Monitor
 from app.schemas.monitor import IncidentDetailRead, IncidentRead
+from app.services.alert_service import send_incident_resolved_alert
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
@@ -42,7 +43,7 @@ def get_incident(incident_id: int, db: Session = Depends(get_db)) -> IncidentDet
 
 
 @router.post("/{incident_id}/resolve", response_model=IncidentRead)
-def resolve_incident(incident_id: int, db: Session = Depends(get_db)) -> Incident:
+async def resolve_incident(incident_id: int, db: Session = Depends(get_db)) -> Incident:
     incident = db.get(Incident, incident_id)
     if not incident:
         raise HTTPException(404, detail="not found")
@@ -56,4 +57,7 @@ def resolve_incident(incident_id: int, db: Session = Depends(get_db)) -> Inciden
     db.add(incident)
     db.commit()
     db.refresh(incident)
+    monitor = db.get(Monitor, incident.monitor_id)
+    if monitor is not None:
+        await send_incident_resolved_alert(db, incident, monitor)
     return incident

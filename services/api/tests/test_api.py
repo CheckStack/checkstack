@@ -32,17 +32,23 @@ def test_monitor_crud(client: TestClient) -> None:
             "interval_seconds": 60,
             "timeout_seconds": 10,
             "failure_threshold": 3,
+            "slack_webhook_url": "https://hooks.slack.test/example",
         },
     )
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "Example"
+    assert body["slack_webhook_url"] == "https://hooks.slack.test/example"
     mid = body["id"]
 
     listed = client.get("/monitors").json()
     assert len(listed) == 1
 
-    sla = client.get(f"/monitors/{mid}/sla", params={"window": "24h"}).json()
+    metrics = client.get(f"/monitors/{mid}/metrics", params={"range": "24h"})
+    assert metrics.status_code == 200
+    assert metrics.json() == []
+
+    sla = client.get(f"/monitors/{mid}/sla", params={"window": "1h"}).json()
     assert sla["total_checks"] == 0
     assert sla["uptime_percent"] == 100.0
 
