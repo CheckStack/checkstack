@@ -30,6 +30,7 @@ def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> Mon
         timeout_seconds=payload.timeout_seconds,
         failure_threshold=payload.failure_threshold,
         alerts_enabled=payload.alerts_enabled,
+        slack_webhook_url=payload.slack_webhook_url,
     )
     db.add(monitor)
     db.flush()

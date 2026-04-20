@@ -31,6 +31,7 @@ def ensure_monitor_tls_and_alerts(engine: Engine) -> None:
         ("consecutive_successes", "ALTER TABLE monitors ADD COLUMN consecutive_successes INTEGER NOT NULL DEFAULT 0"),
         ("last_incident_opened_at", f"ALTER TABLE monitors ADD COLUMN last_incident_opened_at {ts} NULL"),
         ("last_incident_resolved_at", f"ALTER TABLE monitors ADD COLUMN last_incident_resolved_at {ts} NULL"),
+        ("slack_webhook_url", "ALTER TABLE monitors ADD COLUMN slack_webhook_url TEXT NULL"),
     ]:
         if col not in m:
             alters.append(stmt)
@@ -42,10 +43,21 @@ def ensure_monitor_tls_and_alerts(engine: Engine) -> None:
 
 def ensure_incident_columns(engine: Engine) -> None:
     ic = _cols(engine, "incidents")
-    if not ic or "duration_seconds" in ic:
+    if not ic:
+        return
+    ts = _TS(engine)
+    alters: list[str] = []
+    if "duration_seconds" not in ic:
+        alters.append("ALTER TABLE incidents ADD COLUMN duration_seconds INTEGER NULL")
+    if "slack_down_notified_at" not in ic:
+        alters.append(f"ALTER TABLE incidents ADD COLUMN slack_down_notified_at {ts} NULL")
+    if "slack_recovered_notified_at" not in ic:
+        alters.append(f"ALTER TABLE incidents ADD COLUMN slack_recovered_notified_at {ts} NULL")
+    if not alters:
         return
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE incidents ADD COLUMN duration_seconds INTEGER NULL"))
+        for stmt in alters:
+            conn.execute(text(stmt))
 
 
 def ensure_tag_tables(engine: Engine) -> None:

@@ -19,6 +19,7 @@ class Monitor(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     consecutive_successes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     alerts_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    slack_webhook_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_incident_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

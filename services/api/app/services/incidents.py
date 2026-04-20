@@ -65,26 +65,26 @@ def maybe_create_incident(
     return incident
 
 
-def resolve_open_incidents(db: Session, monitor: Monitor) -> int:
+def resolve_open_incidents(db: Session, monitor: Monitor) -> list[Incident]:
     close_after = max(1, int(settings.incident_close_after_successes))
     if monitor.consecutive_successes < close_after:
-        return 0
+        return []
 
     now = datetime.now(UTC)
     debounce = max(0, int(settings.incident_debounce_seconds))
     if monitor.last_incident_opened_at is not None and debounce > 0:
         elapsed = (now - monitor.last_incident_opened_at).total_seconds()
         if elapsed < debounce:
-            return 0
+            return []
 
     stmt = select(Incident).where(Incident.monitor_id == monitor.id, Incident.status == "open")
     rows = db.execute(stmt).scalars().all()
     if not rows:
-        return 0
+        return []
     for inc in rows:
         inc.status = "resolved"
         inc.resolved_at = now
         if inc.started_at:
             inc.duration_seconds = int((now - inc.started_at).total_seconds())
     monitor.last_incident_resolved_at = now
-    return len(rows)
+    return rows
