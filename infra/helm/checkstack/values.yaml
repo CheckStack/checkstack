@@ -25,6 +25,11 @@ worker:
     tag: latest
     pullPolicy: IfNotPresent
   checkIntervalSeconds: 15
+  checkTimeoutSeconds: 10
+  checkRetryAttempts: 3
+  incidentOpenAfterFailures: 3
+  incidentCloseAfterSuccesses: 2
+  incidentDebounceSeconds: 120
   resources:
     limits:
       cpu: 500m

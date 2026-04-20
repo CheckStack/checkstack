@@ -28,6 +28,9 @@ def ensure_monitor_tls_and_alerts(engine: Engine) -> None:
         ("tls_cert_checked_at", f"ALTER TABLE monitors ADD COLUMN tls_cert_checked_at {ts} NULL"),
         ("tls_cert_probe_error", "ALTER TABLE monitors ADD COLUMN tls_cert_probe_error TEXT NULL"),
         ("alerts_enabled", f"ALTER TABLE monitors ADD COLUMN alerts_enabled BOOLEAN NOT NULL {default_bool}"),
+        ("consecutive_successes", "ALTER TABLE monitors ADD COLUMN consecutive_successes INTEGER NOT NULL DEFAULT 0"),
+        ("last_incident_opened_at", f"ALTER TABLE monitors ADD COLUMN last_incident_opened_at {ts} NULL"),
+        ("last_incident_resolved_at", f"ALTER TABLE monitors ADD COLUMN last_incident_resolved_at {ts} NULL"),
     ]:
         if col not in m:
             alters.append(stmt)
@@ -145,8 +148,47 @@ def ensure_alert_config_table(engine: Engine) -> None:
             )
 
 
+def ensure_uptime_log_table(engine: Engine) -> None:
+    insp = inspect(engine)
+    if insp.has_table("uptime_log"):
+        return
+    is_pg = engine.dialect.name == "postgresql"
+    with engine.begin() as conn:
+        if is_pg:
+            conn.execute(
+                text(
+                    """
+                CREATE TABLE IF NOT EXISTS uptime_log (
+                    id SERIAL PRIMARY KEY,
+                    monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                    status VARCHAR(8) NOT NULL,
+                    response_time_ms DOUBLE PRECISION NULL,
+                    checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    error_message TEXT NULL
+                );
+            """
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                CREATE TABLE IF NOT EXISTS uptime_log (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                    status VARCHAR(8) NOT NULL,
+                    response_time_ms FLOAT NULL,
+                    checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    error_message TEXT NULL
+                );
+            """
+                )
+            )
+
+
 def run_migrations(engine: Engine) -> None:
     ensure_monitor_tls_and_alerts(engine)
     ensure_incident_columns(engine)
     ensure_tag_tables(engine)
     ensure_alert_config_table(engine)
+    ensure_uptime_log_table(engine)
