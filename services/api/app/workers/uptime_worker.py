@@ -10,6 +10,7 @@ from app.database import Base, SessionLocal, engine
 from app.models.check_result import CheckResult
 from app.models.incident import Incident
 from app.models.monitor import Monitor
+from app.models.uptime_log import UptimeLog
 from app.db_migrate import run_migrations
 from app.services.checker import check_url
 from app.services.incidents import maybe_create_incident, resolve_open_incidents
@@ -25,16 +26,68 @@ def _should_run_check(monitor: Monitor, now: datetime) -> bool:
     return elapsed >= monitor.interval_seconds
 
 
-async def run_check_for_monitor(db: Session, monitor: Monitor, now: datetime) -> None:
+async def handle_incident_logic(
+    db: Session,
+    monitor: Monitor,
+    result: dict,
+) -> Incident | None:
+    new_inc: Incident | None = None
+    if result["ok"]:
+        monitor.consecutive_failures = 0
+        monitor.consecutive_successes += 1
+        resolved = resolve_open_incidents(db, monitor)
+        if resolved:
+            log.info(
+                "incident.close",
+                extra={
+                    "monitor_id": monitor.id,
+                    "resolved_count": resolved,
+                    "consecutive_successes": monitor.consecutive_successes,
+                },
+            )
+    else:
+        monitor.consecutive_successes = 0
+        monitor.consecutive_failures += 1
+        new_inc = maybe_create_incident(
+            db,
+            monitor,
+            status_code=result["status_code"],
+            error_message=result["error_message"],
+        )
+        if new_inc:
+            log.warning(
+                "incident.open",
+                extra={
+                    "monitor_id": monitor.id,
+                    "incident_id": new_inc.id,
+                    "consecutive_failures": monitor.consecutive_failures,
+                },
+            )
+    return new_inc
+
+
+async def process_monitor(db: Session, monitor: Monitor, now: datetime) -> None:
+    log.info(
+        "check.start",
+        extra={"monitor_id": monitor.id, "url": monitor.url, "checked_at": now.isoformat()},
+    )
     timeout = float(monitor.timeout_seconds)
     is_https = monitor.url.lower().startswith("https://")
     if is_https:
         result, tls_info = await asyncio.gather(
-            check_url(monitor.url, timeout_seconds=timeout),
+            check_url(
+                monitor.url,
+                timeout_seconds=timeout,
+                retry_attempts=settings.check_retry_attempts,
+            ),
             probe_tls_certificate(monitor.url, timeout_seconds=timeout),
         )
     else:
-        result = await check_url(monitor.url, timeout_seconds=timeout)
+        result = await check_url(
+            monitor.url,
+            timeout_seconds=timeout,
+            retry_attempts=settings.check_retry_attempts,
+        )
         tls_info = None
 
     check = CheckResult(
@@ -46,6 +99,15 @@ async def run_check_for_monitor(db: Session, monitor: Monitor, now: datetime) ->
         checked_at=now,
     )
     db.add(check)
+    db.add(
+        UptimeLog(
+            monitor_id=monitor.id,
+            status="UP" if result["ok"] else "DOWN",
+            response_time_ms=result["latency_ms"],
+            checked_at=now,
+            error_message=result["error_message"],
+        )
+    )
 
     monitor.last_checked_at = now
     monitor.last_status = "up" if result["ok"] else "down"
@@ -64,22 +126,19 @@ async def run_check_for_monitor(db: Session, monitor: Monitor, now: datetime) ->
         monitor.tls_cert_checked_at = None
         monitor.tls_cert_probe_error = None
 
-    new_inc: Incident | None = None
-    if result["ok"]:
-        monitor.consecutive_failures = 0
-        resolved = resolve_open_incidents(db, monitor.id)
-        if resolved:
-            log.info("resolved %s open incident(s) for monitor %s", resolved, monitor.id)
-    else:
-        monitor.consecutive_failures += 1
-        new_inc = maybe_create_incident(
-            db,
-            monitor,
-            status_code=result["status_code"],
-            error_message=result["error_message"],
-        )
-        if new_inc:
-            log.warning("opened incident %s for monitor %s", new_inc.id, monitor.id)
+    log.info(
+        "check.result",
+        extra={
+            "monitor_id": monitor.id,
+            "ok": result["ok"],
+            "status_code": result["status_code"],
+            "latency_ms": result["latency_ms"],
+            "error_message": result["error_message"],
+            "attempts": result.get("attempts"),
+        },
+    )
+
+    new_inc = await handle_incident_logic(db, monitor, result)
 
     db.commit()
     if new_inc is not None and new_inc.id is not None:
@@ -99,7 +158,7 @@ async def run_once() -> None:
         for monitor in monitors:
             if not _should_run_check(monitor, now):
                 continue
-            await run_check_for_monitor(db, monitor, now)
+            await process_monitor(db, monitor, now)
     finally:
         db.close()
 
