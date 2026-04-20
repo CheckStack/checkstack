@@ -68,6 +68,12 @@ class CheckResultRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MonitorMetricPoint(BaseModel):
+    timestamp: datetime
+    status: str
+    response_time_ms: float
+
+
 class SlaResponse(BaseModel):
     monitor_id: int
     window: str

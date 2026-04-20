@@ -10,10 +10,12 @@ from app.schemas.monitor import (
     MonitorCreate,
     MonitorRead,
     MonitorUpdate,
+    MonitorMetricPoint,
     SlaResponse,
 )
 from app.routers.serializers import load_monitors_eager, to_monitor_read
 from app.services.latency_stats import compute_latency_stats
+from app.services.metrics import fetch_metrics, parse_metrics_range
 from app.services.sla import compute_sla
 
 router = APIRouter(prefix="/monitors", tags=["monitors"])
@@ -153,11 +155,24 @@ def list_checks(
     )
 
 
+@router.get("/{monitor_id}/metrics", response_model=list[MonitorMetricPoint])
+def get_monitor_metrics(
+    monitor_id: int,
+    time_range: str = Query(default="24h", alias="range", pattern="^(1h|24h|7d)$"),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    monitor = db.get(Monitor, monitor_id)
+    if not monitor:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    normalized_range = parse_metrics_range(time_range)
+    return fetch_metrics(db, monitor_id, normalized_range)
+
+
 @router.get("/{monitor_id}/sla", response_model=SlaResponse)
 def get_sla(monitor_id: int, window: str = Query(default="24h"), db: Session = Depends(get_db)) -> dict:
     m = db.get(Monitor, monitor_id)
     if not m:
         raise HTTPException(status_code=404, detail="monitor not found")
-    if window not in ("24h", "7d"):
-        raise HTTPException(status_code=400, detail="window must be 24h or 7d")
+    if window not in ("1h", "24h", "7d"):
+        raise HTTPException(status_code=400, detail="window must be 1h, 24h or 7d")
     return compute_sla(db, monitor_id, window)
