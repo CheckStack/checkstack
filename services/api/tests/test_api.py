@@ -1,12 +1,15 @@
 import os
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 
-from app.database import Base, engine  # noqa: E402
+from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.incident import Incident  # noqa: E402
+from app.models.uptime_log import UptimeLog  # noqa: E402
 
 
 @pytest.fixture()
@@ -32,17 +35,23 @@ def test_monitor_crud(client: TestClient) -> None:
             "interval_seconds": 60,
             "timeout_seconds": 10,
             "failure_threshold": 3,
+            "slack_webhook_url": "https://hooks.slack.test/example",
         },
     )
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "Example"
+    assert body["slack_webhook_url"] == "https://hooks.slack.test/example"
     mid = body["id"]
 
     listed = client.get("/monitors").json()
     assert len(listed) == 1
 
-    sla = client.get(f"/monitors/{mid}/sla", params={"window": "24h"}).json()
+    metrics = client.get(f"/monitors/{mid}/metrics", params={"range": "24h"})
+    assert metrics.status_code == 200
+    assert metrics.json() == []
+
+    sla = client.get(f"/monitors/{mid}/sla", params={"window": "1h"}).json()
     assert sla["total_checks"] == 0
     assert sla["uptime_percent"] == 100.0
 
@@ -94,3 +103,78 @@ def test_tags_uptime_alerts_and_incident(client: TestClient) -> None:
 def test_get_incident_not_found(client: TestClient) -> None:
     d = client.get("/incidents/9999")
     assert d.status_code == 404
+
+
+def test_incident_detail_includes_logs_and_failure_reason(client: TestClient) -> None:
+    m = client.post(
+        "/monitors",
+        json={
+            "name": "API monitor",
+            "url": "https://example.com/health",
+            "interval_seconds": 60,
+            "timeout_seconds": 5,
+            "failure_threshold": 3,
+        },
+    )
+    assert m.status_code == 200
+    monitor_id = m.json()["id"]
+
+    started = datetime.now(timezone.utc) - timedelta(minutes=10)
+    resolved = started + timedelta(minutes=5)
+
+    with SessionLocal() as db:
+        inc = Incident(
+            monitor_id=monitor_id,
+            title="Incident: API monitor unavailable",
+            summary="auto incident",
+            status="resolved",
+            detected_by="test",
+            started_at=started,
+            resolved_at=resolved,
+            duration_seconds=300,
+        )
+        db.add(inc)
+        db.flush()
+        incident_id = inc.id
+
+        db.add_all(
+            [
+                UptimeLog(
+                    monitor_id=monitor_id,
+                    status="DOWN",
+                    response_time_ms=1200.0,
+                    checked_at=started + timedelta(minutes=1),
+                    error_message="HTTP 500",
+                ),
+                UptimeLog(
+                    monitor_id=monitor_id,
+                    status="DOWN",
+                    response_time_ms=1300.0,
+                    checked_at=started + timedelta(minutes=2),
+                    error_message="HTTP 500",
+                ),
+                UptimeLog(
+                    monitor_id=monitor_id,
+                    status="DOWN",
+                    response_time_ms=900.0,
+                    checked_at=started + timedelta(minutes=3),
+                    error_message="timeout",
+                ),
+                UptimeLog(
+                    monitor_id=monitor_id,
+                    status="UP",
+                    response_time_ms=220.0,
+                    checked_at=started + timedelta(minutes=4),
+                    error_message=None,
+                ),
+            ]
+        )
+        db.commit()
+
+    detail = client.get(f"/incidents/{incident_id}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["monitor"]["id"] == monitor_id
+    assert payload["failure_reason_summary"] == "HTTP 500"
+    assert payload["duration_seconds"] == 300
+    assert len(payload["uptime_logs"]) == 4

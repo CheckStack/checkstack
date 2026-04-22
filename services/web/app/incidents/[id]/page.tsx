@@ -74,12 +74,36 @@ export default function IncidentDetailPage() {
           <li>Start: {fmt(i.start_time || i.started_at)}</li>
           {i.resolved_at || i.end_time ? <li>End: {fmt(i.resolved_at || i.end_time)}</li> : <li>End: (open)</li>}
           <li>Duration: {dur(i.duration_seconds)}</li>
+          <li>Recovery point: {i.resolved_at ? fmt(i.resolved_at) : "Not recovered yet"}</li>
         </ul>
       </section>
 
       <section className="rounded-xl border border-white/10 bg-surface-card p-5">
         <h2 className="text-sm font-medium text-slate-500">Summary</h2>
         <p className="mt-2 whitespace-pre-wrap text-slate-200">{i.summary}</p>
+        <p className="mt-3 text-sm text-slate-400">
+          Failure reason: <span className="text-slate-200">{i.failure_reason_summary || "Unavailable"}</span>
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-white/10 bg-surface-card p-5">
+        <h2 className="text-sm font-medium text-slate-500">Failure timeline (last 20 checks in incident window)</h2>
+        {i.uptime_logs.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-400">No related uptime logs found.</p>
+        ) : (
+          <ul className="mt-3 space-y-2 text-sm">
+            {i.uptime_logs.map((log, idx) => (
+              <li key={`${log.timestamp}-${idx}`} className="rounded-md border border-white/10 p-3 text-slate-200">
+                <div className="flex items-center justify-between gap-4">
+                  <span className={log.status === "DOWN" ? "text-rose-300" : "text-emerald-300"}>{log.status}</span>
+                  <span className="text-slate-400">{fmt(log.timestamp)}</span>
+                </div>
+                <div className="mt-1 text-slate-400">Latency: {log.response_time_ms ?? "—"} ms</div>
+                {log.error_message ? <div className="mt-1 text-rose-200">Reason: {log.error_message}</div> : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {i.status === "open" ? (

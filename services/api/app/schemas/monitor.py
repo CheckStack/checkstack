@@ -18,6 +18,7 @@ class MonitorCreate(BaseModel):
     timeout_seconds: int = Field(default=10, ge=1, le=120)
     failure_threshold: int = Field(default=3, ge=1, le=20)
     alerts_enabled: bool = True
+    slack_webhook_url: str | None = None
     tag_ids: list[int] = Field(default_factory=list)
 
 
@@ -28,6 +29,7 @@ class MonitorUpdate(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=1, le=120)
     failure_threshold: int | None = Field(default=None, ge=1, le=20)
     alerts_enabled: bool | None = None
+    slack_webhook_url: str | None = None
     tag_ids: list[int] | None = None
 
 
@@ -40,6 +42,7 @@ class MonitorRead(BaseModel):
     failure_threshold: int
     consecutive_failures: int
     alerts_enabled: bool
+    slack_webhook_url: str | None
     last_status: str | None
     last_checked_at: datetime | None
     tls_cert_expires_at: datetime | None = None
@@ -66,6 +69,12 @@ class CheckResultRead(BaseModel):
     checked_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class MonitorMetricPoint(BaseModel):
+    timestamp: datetime
+    status: str
+    response_time_ms: float
 
 
 class SlaResponse(BaseModel):
@@ -95,6 +104,9 @@ class IncidentDetailRead(IncidentRead):
     end_time: datetime | None
     monitor_name: str
     monitor_url: str
+    monitor: "MonitorInIncident"
+    failure_reason_summary: str | None = None
+    uptime_logs: list["IncidentUptimeLog"] = Field(default_factory=list)
 
 
 class MonitorInIncident(BaseModel):
@@ -103,3 +115,9 @@ class MonitorInIncident(BaseModel):
     url: str
     alerts_enabled: bool
 
+
+class IncidentUptimeLog(BaseModel):
+    timestamp: datetime
+    status: str
+    response_time_ms: float | None = None
+    error_message: str | None = None

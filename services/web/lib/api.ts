@@ -112,6 +112,19 @@ export type IncidentDetail = Incident & {
   end_time: string | null;
   monitor_name: string;
   monitor_url: string;
+  monitor: {
+    id: number;
+    name: string;
+    url: string;
+    alerts_enabled: boolean;
+  };
+  failure_reason_summary: string | null;
+  uptime_logs: {
+    timestamp: string;
+    status: "UP" | "DOWN" | string;
+    response_time_ms: number | null;
+    error_message: string | null;
+  }[];
 };
 
 export type PublicMonitor = {

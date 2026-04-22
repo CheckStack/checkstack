@@ -20,5 +20,7 @@ class Incident(Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    slack_down_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    slack_recovered_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     monitor = relationship("Monitor", back_populates="incidents")

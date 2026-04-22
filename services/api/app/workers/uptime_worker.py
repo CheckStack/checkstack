@@ -13,6 +13,7 @@ from app.models.monitor import Monitor
 from app.models.uptime_log import UptimeLog
 from app.db_migrate import run_migrations
 from app.services.checker import check_url
+from app.services.alert_service import send_incident_opened_alert, send_incident_resolved_alert
 from app.services.incidents import maybe_create_incident, resolve_open_incidents
 from app.services.tls import probe_tls_certificate
 
@@ -30,18 +31,19 @@ async def handle_incident_logic(
     db: Session,
     monitor: Monitor,
     result: dict,
-) -> Incident | None:
+) -> tuple[Incident | None, list[Incident]]:
     new_inc: Incident | None = None
+    resolved_incidents: list[Incident] = []
     if result["ok"]:
         monitor.consecutive_failures = 0
         monitor.consecutive_successes += 1
-        resolved = resolve_open_incidents(db, monitor)
-        if resolved:
+        resolved_incidents = resolve_open_incidents(db, monitor)
+        if resolved_incidents:
             log.info(
                 "incident.close",
                 extra={
                     "monitor_id": monitor.id,
-                    "resolved_count": resolved,
+                    "resolved_count": len(resolved_incidents),
                     "consecutive_successes": monitor.consecutive_successes,
                 },
             )
@@ -63,7 +65,7 @@ async def handle_incident_logic(
                     "consecutive_failures": monitor.consecutive_failures,
                 },
             )
-    return new_inc
+    return new_inc, resolved_incidents
 
 
 async def process_monitor(db: Session, monitor: Monitor, now: datetime) -> None:
@@ -138,16 +140,19 @@ async def process_monitor(db: Session, monitor: Monitor, now: datetime) -> None:
         },
     )
 
-    new_inc = await handle_incident_logic(db, monitor, result)
+    new_inc, resolved_incidents = await handle_incident_logic(db, monitor, result)
 
     db.commit()
-    if new_inc is not None and new_inc.id is not None:
-        from app.services.alerting import try_notify_new_incident
-
+    if new_inc is not None:
         try:
-            await try_notify_new_incident(new_inc.id)
+            await send_incident_opened_alert(db, new_inc, monitor)
         except Exception:  # noqa: BLE001
-            log.exception("incident %s: alert delivery failed", new_inc.id)
+            log.exception("incident %s: open alert delivery failed", new_inc.id)
+    for resolved in resolved_incidents:
+        try:
+            await send_incident_resolved_alert(db, resolved, monitor)
+        except Exception:  # noqa: BLE001
+            log.exception("incident %s: resolve alert delivery failed", resolved.id)
 
 
 async def run_once() -> None:
