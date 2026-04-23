@@ -121,3 +121,4 @@ class IncidentUptimeLog(BaseModel):
     status: str
     response_time_ms: float | None = None
     error_message: str | None = None
+
