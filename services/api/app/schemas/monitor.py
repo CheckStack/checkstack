@@ -104,6 +104,9 @@ class IncidentDetailRead(IncidentRead):
     end_time: datetime | None
     monitor_name: str
     monitor_url: str
+    monitor: "MonitorInIncident"
+    failure_reason_summary: str | None = None
+    uptime_logs: list["IncidentUptimeLog"] = Field(default_factory=list)
 
 
 class MonitorInIncident(BaseModel):
@@ -111,3 +114,11 @@ class MonitorInIncident(BaseModel):
     name: str
     url: str
     alerts_enabled: bool
+
+
+class IncidentUptimeLog(BaseModel):
+    timestamp: datetime
+    status: str
+    response_time_ms: float | None = None
+    error_message: str | None = None
+
