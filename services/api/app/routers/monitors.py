@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -10,10 +11,12 @@ from app.schemas.monitor import (
     MonitorCreate,
     MonitorRead,
     MonitorUpdate,
+    MonitorMetricPoint,
     SlaResponse,
 )
 from app.routers.serializers import load_monitors_eager, to_monitor_read
 from app.services.latency_stats import compute_latency_stats
+from app.services.metrics import fetch_metrics, parse_metrics_range
 from app.services.sla import compute_sla
 
 router = APIRouter(prefix="/monitors", tags=["monitors"])
@@ -21,6 +24,8 @@ router = APIRouter(prefix="/monitors", tags=["monitors"])
 
 @router.post("", response_model=MonitorRead)
 def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> MonitorRead:
+    if payload.is_public and not payload.public_slug:
+        raise HTTPException(status_code=400, detail="public_slug is required when is_public is true")
     monitor = Monitor(
         name=payload.name,
         url=str(payload.url),
@@ -28,6 +33,9 @@ def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> Mon
         timeout_seconds=payload.timeout_seconds,
         failure_threshold=payload.failure_threshold,
         alerts_enabled=payload.alerts_enabled,
+        slack_webhook_url=payload.slack_webhook_url,
+        public_slug=payload.public_slug,
+        is_public=payload.is_public,
     )
     db.add(monitor)
     db.flush()
@@ -36,7 +44,11 @@ def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> Mon
         if len(tags) != len(set(payload.tag_ids)):
             raise HTTPException(status_code=400, detail="one or more tag_ids not found")
         monitor.tags = tags
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="public_slug must be unique")
     db.refresh(monitor)
     m2 = (
         db.query(Monitor)
@@ -94,6 +106,10 @@ def update_monitor(
     if not m:
         raise HTTPException(status_code=404, detail="monitor not found")
     d = payload.model_dump(exclude_unset=True)
+    is_public = d.get("is_public", m.is_public)
+    public_slug = d.get("public_slug", m.public_slug)
+    if is_public and not public_slug:
+        raise HTTPException(status_code=400, detail="public_slug is required when is_public is true")
     tids = d.pop("tag_ids", None)
     for k, v in d.items():
         setattr(m, k, v)
@@ -103,7 +119,11 @@ def update_monitor(
             raise HTTPException(status_code=400, detail="one or more tag_ids not found")
         m.tags = tags
     db.add(m)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="public_slug must be unique")
     m2 = (
         db.query(Monitor)
         .options(joinedload(Monitor.tags))
@@ -153,11 +173,24 @@ def list_checks(
     )
 
 
+@router.get("/{monitor_id}/metrics", response_model=list[MonitorMetricPoint])
+def get_monitor_metrics(
+    monitor_id: int,
+    time_range: str = Query(default="24h", alias="range", pattern="^(1h|24h|7d)$"),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    monitor = db.get(Monitor, monitor_id)
+    if not monitor:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    normalized_range = parse_metrics_range(time_range)
+    return fetch_metrics(db, monitor_id, normalized_range)
+
+
 @router.get("/{monitor_id}/sla", response_model=SlaResponse)
 def get_sla(monitor_id: int, window: str = Query(default="24h"), db: Session = Depends(get_db)) -> dict:
     m = db.get(Monitor, monitor_id)
     if not m:
         raise HTTPException(status_code=404, detail="monitor not found")
-    if window not in ("24h", "7d"):
-        raise HTTPException(status_code=400, detail="window must be 24h or 7d")
+    if window not in ("1h", "24h", "7d"):
+        raise HTTPException(status_code=400, detail="window must be 1h, 24h or 7d")
     return compute_sla(db, monitor_id, window)

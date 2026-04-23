@@ -31,6 +31,9 @@ def ensure_monitor_tls_and_alerts(engine: Engine) -> None:
         ("consecutive_successes", "ALTER TABLE monitors ADD COLUMN consecutive_successes INTEGER NOT NULL DEFAULT 0"),
         ("last_incident_opened_at", f"ALTER TABLE monitors ADD COLUMN last_incident_opened_at {ts} NULL"),
         ("last_incident_resolved_at", f"ALTER TABLE monitors ADD COLUMN last_incident_resolved_at {ts} NULL"),
+        ("slack_webhook_url", "ALTER TABLE monitors ADD COLUMN slack_webhook_url TEXT NULL"),
+        ("public_slug", "ALTER TABLE monitors ADD COLUMN public_slug VARCHAR(128) NULL"),
+        ("is_public", f"ALTER TABLE monitors ADD COLUMN is_public BOOLEAN NOT NULL {default_bool}"),
     ]:
         if col not in m:
             alters.append(stmt)
@@ -38,14 +41,27 @@ def ensure_monitor_tls_and_alerts(engine: Engine) -> None:
         with engine.begin() as conn:
             for stmt in alters:
                 conn.execute(text(stmt))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_monitors_public_slug ON monitors(public_slug)"))
 
 
 def ensure_incident_columns(engine: Engine) -> None:
     ic = _cols(engine, "incidents")
-    if not ic or "duration_seconds" in ic:
+    if not ic:
+        return
+    ts = _TS(engine)
+    alters: list[str] = []
+    if "duration_seconds" not in ic:
+        alters.append("ALTER TABLE incidents ADD COLUMN duration_seconds INTEGER NULL")
+    if "slack_down_notified_at" not in ic:
+        alters.append(f"ALTER TABLE incidents ADD COLUMN slack_down_notified_at {ts} NULL")
+    if "slack_recovered_notified_at" not in ic:
+        alters.append(f"ALTER TABLE incidents ADD COLUMN slack_recovered_notified_at {ts} NULL")
+    if not alters:
         return
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE incidents ADD COLUMN duration_seconds INTEGER NULL"))
+        for stmt in alters:
+            conn.execute(text(stmt))
 
 
 def ensure_tag_tables(engine: Engine) -> None:
@@ -150,39 +166,57 @@ def ensure_alert_config_table(engine: Engine) -> None:
 
 def ensure_uptime_log_table(engine: Engine) -> None:
     insp = inspect(engine)
-    if insp.has_table("uptime_log"):
-        return
     is_pg = engine.dialect.name == "postgresql"
     with engine.begin() as conn:
+        if not insp.has_table("uptime_log"):
+            if is_pg:
+                conn.execute(
+                    text(
+                        """
+                    CREATE TABLE IF NOT EXISTS uptime_log (
+                        id SERIAL PRIMARY KEY,
+                        monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                        status VARCHAR(8) NOT NULL,
+                        response_time_ms DOUBLE PRECISION NULL,
+                        checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        error_message TEXT NULL
+                    );
+                """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                    CREATE TABLE IF NOT EXISTS uptime_log (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                        status VARCHAR(8) NOT NULL,
+                        response_time_ms FLOAT NULL,
+                        checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        error_message TEXT NULL
+                    );
+                """
+                    )
+                )
+
         if is_pg:
             conn.execute(
                 text(
-                    """
-                CREATE TABLE IF NOT EXISTS uptime_log (
-                    id SERIAL PRIMARY KEY,
-                    monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
-                    status VARCHAR(8) NOT NULL,
-                    response_time_ms DOUBLE PRECISION NULL,
-                    checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    error_message TEXT NULL
-                );
-            """
+                    "CREATE INDEX IF NOT EXISTS ix_uptime_log_monitor_checked_at ON uptime_log (monitor_id, checked_at);"
                 )
+            )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_uptime_log_checked_at ON uptime_log (checked_at);")
             )
         else:
             conn.execute(
                 text(
-                    """
-                CREATE TABLE IF NOT EXISTS uptime_log (
-                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                    monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
-                    status VARCHAR(8) NOT NULL,
-                    response_time_ms FLOAT NULL,
-                    checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    error_message TEXT NULL
-                );
-            """
+                    "CREATE INDEX IF NOT EXISTS ix_uptime_log_monitor_checked_at ON uptime_log (monitor_id, checked_at);"
                 )
+            )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_uptime_log_checked_at ON uptime_log (checked_at);")
             )
 
 

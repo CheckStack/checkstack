@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -9,6 +9,7 @@ from app.models.tag import Tag, monitor_tags
 
 class Monitor(Base):
     __tablename__ = "monitors"
+    __table_args__ = (UniqueConstraint("public_slug", name="uq_monitors_public_slug"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -19,6 +20,9 @@ class Monitor(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     consecutive_successes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     alerts_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    slack_webhook_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    public_slug: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_incident_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

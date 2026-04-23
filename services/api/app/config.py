@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     smtp_from: str = "checkstack@localhost"
     smtp_use_tls: bool = True
 
+    slack_webhook_url: str = ""
     slack_default_webhook_url: str = ""
 
 
