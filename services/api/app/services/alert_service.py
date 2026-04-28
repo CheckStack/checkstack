@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import or_
@@ -46,7 +46,7 @@ def _slack_webhook_urls(db: Session, monitor: Monitor) -> list[str]:
 def _fmt_ts(ts: datetime | None) -> str:
     if ts is None:
         return "unknown"
-    return ts.astimezone(UTC).isoformat()
+    return ts.astimezone(timezone.utc).isoformat()
 
 
 def _opened_message(incident: Incident, monitor: Monitor) -> str:
@@ -106,7 +106,7 @@ async def send_incident_opened_alert(db: Session, incident: Incident, monitor: M
     if not ok_any:
         return
 
-    incident.slack_down_notified_at = datetime.now(UTC)
+    incident.slack_down_notified_at = datetime.now(timezone.utc)
     db.add(incident)
     db.commit()
 
@@ -127,6 +127,6 @@ async def send_incident_resolved_alert(db: Session, incident: Incident, monitor:
     if not ok_any:
         return
 
-    incident.slack_recovered_notified_at = datetime.now(UTC)
+    incident.slack_recovered_notified_at = datetime.now(timezone.utc)
     db.add(incident)
     db.commit()

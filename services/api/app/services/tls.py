@@ -7,7 +7,7 @@ import email.utils
 import logging
 import ssl
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,7 +36,7 @@ def _parse_not_after(cert: dict[str, Any]) -> datetime | None:
         return None
     dt = email.utils.parsedate_to_datetime(raw)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt
 
 
@@ -45,10 +45,14 @@ def _parse_der_leaf(der: bytes) -> tuple[datetime | None, str | None]:
     cert = x509.load_der_x509_certificate(der)
     na = getattr(cert, "not_valid_after_utc", None)
     if na is not None:
-        expires = na if na.tzinfo is not None else na.replace(tzinfo=UTC)
+        expires = na if na.tzinfo is not None else na.replace(tzinfo=timezone.utc)
     else:
         legacy = cert.not_valid_after
-        expires = legacy.replace(tzinfo=UTC) if legacy.tzinfo is None else legacy.astimezone(UTC)
+        expires = (
+            legacy.replace(tzinfo=timezone.utc)
+            if legacy.tzinfo is None
+            else legacy.astimezone(timezone.utc)
+        )
     subject = cert.subject.rfc4514_string() or None
     return expires, subject
 

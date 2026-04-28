@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -14,12 +15,49 @@ from app.schemas.monitor import (
     MonitorMetricPoint,
     SlaResponse,
 )
-from app.routers.serializers import load_monitors_eager, to_monitor_read
+from app.routers.serializers import to_monitor_read
 from app.services.latency_stats import compute_latency_stats
 from app.services.metrics import fetch_metrics, parse_metrics_range
 from app.services.sla import compute_sla
 
 router = APIRouter(prefix="/monitors", tags=["monitors"])
+
+
+def _resolve_monitor_tags(
+    db: Session,
+    *,
+    tag_ids: list[int] | None,
+    tag_names: list[str] | None,
+) -> list[Tag]:
+    resolved: dict[int, Tag] = {}
+
+    normalized_names = [t.strip() for t in (tag_names or []) if t and t.strip()]
+    for tag_id in tag_ids or []:
+        t = db.get(Tag, tag_id)
+        if t is None:
+            raise HTTPException(status_code=400, detail="one or more tag_ids not found")
+        resolved[t.id] = t
+
+    if normalized_names:
+        existing = (
+            db.query(Tag)
+            .filter(func.lower(Tag.name).in_([name.lower() for name in normalized_names]))
+            .all()
+        )
+        existing_by_name = {t.name.lower(): t for t in existing}
+
+        for name in normalized_names:
+            key = name.lower()
+            if key in existing_by_name:
+                resolved[existing_by_name[key].id] = existing_by_name[key]
+                continue
+            created = Tag(name=name)
+            db.add(created)
+            db.flush()
+            resolved[created.id] = created
+            existing_by_name[key] = created
+
+    return list(resolved.values())
 
 
 @router.post("", response_model=MonitorRead)
@@ -39,10 +77,8 @@ def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> Mon
     )
     db.add(monitor)
     db.flush()
-    if payload.tag_ids:
-        tags = db.query(Tag).filter(Tag.id.in_(set(payload.tag_ids))).all()
-        if len(tags) != len(set(payload.tag_ids)):
-            raise HTTPException(status_code=400, detail="one or more tag_ids not found")
+    tags = _resolve_monitor_tags(db, tag_ids=payload.tag_ids, tag_names=payload.tags)
+    if tags:
         monitor.tags = tags
     try:
         db.commit()
@@ -62,20 +98,19 @@ def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)) -> Mon
 @router.get("", response_model=list[MonitorRead])
 def list_monitors(
     tag_id: int | None = Query(default=None, description="filter by tag"),
+    tag: str | None = Query(default=None, description="filter by tag name"),
     db: Session = Depends(get_db),
 ) -> list[MonitorRead]:
-    if tag_id is not None:
-        mlist = (
-            db.query(Monitor)
-            .options(joinedload(Monitor.tags))
-            .join(Monitor.tags)
-            .filter(Tag.id == tag_id)
-            .order_by(Monitor.id)
-            .distinct()
-            .all()
-        )
+    query = db.query(Monitor).options(joinedload(Monitor.tags))
+    if tag_id is not None or tag is not None:
+        query = query.join(Monitor.tags)
+        if tag_id is not None:
+            query = query.filter(Tag.id == tag_id)
+        if tag is not None:
+            query = query.filter(func.lower(Tag.name) == tag.strip().lower())
+        mlist = query.order_by(Monitor.id).distinct().all()
     else:
-        mlist = load_monitors_eager(db)
+        mlist = query.order_by(Monitor.id).all()
     return [to_monitor_read(db, m) for m in mlist]
 
 
@@ -111,12 +146,11 @@ def update_monitor(
     if is_public and not public_slug:
         raise HTTPException(status_code=400, detail="public_slug is required when is_public is true")
     tids = d.pop("tag_ids", None)
+    tnames = d.pop("tags", None)
     for k, v in d.items():
         setattr(m, k, v)
-    if tids is not None:
-        tags = db.query(Tag).filter(Tag.id.in_(tids)).all()
-        if len(tags) != len(set(tids)):
-            raise HTTPException(status_code=400, detail="one or more tag_ids not found")
+    if tids is not None or tnames is not None:
+        tags = _resolve_monitor_tags(db, tag_ids=tids, tag_names=tnames)
         m.tags = tags
     db.add(m)
     try:

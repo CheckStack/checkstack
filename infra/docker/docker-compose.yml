@@ -36,7 +36,7 @@ services:
     ports:
       - "8000:8000"
 
-  worker:
+  checkstack-worker:
     build:
       context: ../../services/api
     command: ["python", "-m", "app.workers.uptime_worker"]

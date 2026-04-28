@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -27,7 +27,7 @@ def get_incident(incident_id: int, db: Session = Depends(get_db)) -> IncidentDet
     m = db.get(Monitor, i.monitor_id)
     if not m:
         raise HTTPException(404, "not found")
-    window_end = i.resolved_at or datetime.now(UTC)
+    window_end = i.resolved_at or datetime.now(timezone.utc)
     logs_stmt = (
         select(
             UptimeLog.checked_at,
@@ -104,7 +104,7 @@ async def resolve_incident(incident_id: int, db: Session = Depends(get_db)) -> I
         raise HTTPException(404, detail="not found")
     if incident.status == "resolved":
         return incident
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     incident.status = "resolved"
     incident.resolved_at = now
     if incident.started_at:

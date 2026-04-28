@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,7 +42,7 @@ def maybe_create_incident(
     open_after = max(1, int(settings.incident_open_after_failures))
     if monitor.consecutive_failures < open_after:
         return None
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     debounce = max(0, int(settings.incident_debounce_seconds))
     if monitor.last_incident_resolved_at is not None and debounce > 0:
         elapsed = (now - monitor.last_incident_resolved_at).total_seconds()
@@ -70,7 +70,7 @@ def resolve_open_incidents(db: Session, monitor: Monitor) -> list[Incident]:
     if monitor.consecutive_successes < close_after:
         return []
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     debounce = max(0, int(settings.incident_debounce_seconds))
     if monitor.last_incident_opened_at is not None and debounce > 0:
         elapsed = (now - monitor.last_incident_opened_at).total_seconds()

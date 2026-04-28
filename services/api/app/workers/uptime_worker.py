@@ -1,7 +1,7 @@
 import app.models  # noqa: F401
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -156,7 +156,7 @@ async def process_monitor(db: Session, monitor: Monitor, now: datetime) -> None:
 
 
 async def run_once() -> None:
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     db = SessionLocal()
     try:
         monitors = db.query(Monitor).order_by(Monitor.id.asc()).all()

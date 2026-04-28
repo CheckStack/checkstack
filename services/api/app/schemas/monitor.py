@@ -22,6 +22,7 @@ class MonitorCreate(BaseModel):
     public_slug: str | None = None
     is_public: bool = False
     tag_ids: list[int] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class MonitorUpdate(BaseModel):
@@ -35,6 +36,7 @@ class MonitorUpdate(BaseModel):
     public_slug: str | None = None
     is_public: bool | None = None
     tag_ids: list[int] | None = None
+    tags: list[str] | None = None
 
 
 class MonitorRead(BaseModel):
@@ -127,4 +129,3 @@ class IncidentUptimeLog(BaseModel):
     status: str
     response_time_ms: float | None = None
     error_message: str | None = None
-
