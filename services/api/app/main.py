@@ -39,6 +39,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(public_status.router)
+app.include_router(public_status.status_router)
 app.include_router(monitors.router)
 app.include_router(incidents.router)
 app.include_router(uptime.router)

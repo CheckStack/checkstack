@@ -36,12 +36,16 @@ def test_monitor_crud(client: TestClient) -> None:
             "timeout_seconds": 10,
             "failure_threshold": 3,
             "slack_webhook_url": "https://hooks.slack.test/example",
+            "is_public": True,
+            "public_slug": "example-status",
         },
     )
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "Example"
     assert body["slack_webhook_url"] == "https://hooks.slack.test/example"
+    assert body["is_public"] is True
+    assert body["public_slug"] == "example-status"
     mid = body["id"]
 
     listed = client.get("/monitors").json()
@@ -103,6 +107,50 @@ def test_tags_uptime_alerts_and_incident(client: TestClient) -> None:
 def test_get_incident_not_found(client: TestClient) -> None:
     d = client.get("/incidents/9999")
     assert d.status_code == 404
+
+
+def test_public_status_endpoint_only_exposes_public_monitors(client: TestClient) -> None:
+    public_m = client.post(
+        "/monitors",
+        json={
+            "name": "Public API",
+            "url": "https://example.com/public",
+            "interval_seconds": 60,
+            "timeout_seconds": 10,
+            "failure_threshold": 3,
+            "is_public": True,
+            "public_slug": "public-api",
+        },
+    )
+    assert public_m.status_code == 200
+
+    private_m = client.post(
+        "/monitors",
+        json={
+            "name": "Private API",
+            "url": "https://example.com/private",
+            "interval_seconds": 60,
+            "timeout_seconds": 10,
+            "failure_threshold": 3,
+            "is_public": False,
+        },
+    )
+    assert private_m.status_code == 200
+
+    listing = client.get("/public/status")
+    assert listing.status_code == 200
+    monitor_names = [m["name"] for m in listing.json()["monitors"]]
+    assert "Public API" in monitor_names
+    assert "Private API" not in monitor_names
+
+    by_slug = client.get("/status/public-api")
+    assert by_slug.status_code == 200
+    payload = by_slug.json()
+    assert payload["monitor"]["name"] == "Public API"
+    assert payload["powered_by"] == "CheckStack"
+
+    not_found = client.get("/status/private-api")
+    assert not_found.status_code == 404
 
 
 def test_incident_detail_includes_logs_and_failure_reason(client: TestClient) -> None:

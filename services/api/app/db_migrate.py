@@ -32,6 +32,8 @@ def ensure_monitor_tls_and_alerts(engine: Engine) -> None:
         ("last_incident_opened_at", f"ALTER TABLE monitors ADD COLUMN last_incident_opened_at {ts} NULL"),
         ("last_incident_resolved_at", f"ALTER TABLE monitors ADD COLUMN last_incident_resolved_at {ts} NULL"),
         ("slack_webhook_url", "ALTER TABLE monitors ADD COLUMN slack_webhook_url TEXT NULL"),
+        ("public_slug", "ALTER TABLE monitors ADD COLUMN public_slug VARCHAR(128) NULL"),
+        ("is_public", f"ALTER TABLE monitors ADD COLUMN is_public BOOLEAN NOT NULL {default_bool}"),
     ]:
         if col not in m:
             alters.append(stmt)
@@ -39,6 +41,8 @@ def ensure_monitor_tls_and_alerts(engine: Engine) -> None:
         with engine.begin() as conn:
             for stmt in alters:
                 conn.execute(text(stmt))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_monitors_public_slug ON monitors(public_slug)"))
 
 
 def ensure_incident_columns(engine: Engine) -> None:

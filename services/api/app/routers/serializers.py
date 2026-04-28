@@ -35,6 +35,8 @@ def to_monitor_read(db: Session, m: Monitor) -> MonitorRead:
         consecutive_failures=m.consecutive_failures,
         alerts_enabled=bool(m.alerts_enabled) if m.alerts_enabled is not None else True,
         slack_webhook_url=m.slack_webhook_url,
+        public_slug=m.public_slug,
+        is_public=bool(m.is_public),
         last_status=m.last_status,
         last_checked_at=m.last_checked_at,
         tls_cert_expires_at=m.tls_cert_expires_at,

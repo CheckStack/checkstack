@@ -19,6 +19,8 @@ class MonitorCreate(BaseModel):
     failure_threshold: int = Field(default=3, ge=1, le=20)
     alerts_enabled: bool = True
     slack_webhook_url: str | None = None
+    public_slug: str | None = None
+    is_public: bool = False
     tag_ids: list[int] = Field(default_factory=list)
 
 
@@ -30,6 +32,8 @@ class MonitorUpdate(BaseModel):
     failure_threshold: int | None = Field(default=None, ge=1, le=20)
     alerts_enabled: bool | None = None
     slack_webhook_url: str | None = None
+    public_slug: str | None = None
+    is_public: bool | None = None
     tag_ids: list[int] | None = None
 
 
@@ -43,6 +47,8 @@ class MonitorRead(BaseModel):
     consecutive_failures: int
     alerts_enabled: bool
     slack_webhook_url: str | None
+    public_slug: str | None
+    is_public: bool
     last_status: str | None
     last_checked_at: datetime | None
     tls_cert_expires_at: datetime | None = None
