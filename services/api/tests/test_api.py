@@ -24,6 +24,12 @@ def test_healthz(client: TestClient) -> None:
     r = client.get("/healthz")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    health = client.get("/health")
+    assert health.status_code == 200
+    assert health.json()["status"] == "ok"
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
 
 
 def test_monitor_crud(client: TestClient) -> None:
@@ -84,6 +90,8 @@ def test_tags_uptime_alerts_and_incident(client: TestClient) -> None:
     mid = m.json()["id"]
     list_m = client.get(f"/monitors?tag_id={tag_id}").json()
     assert any(x["id"] == mid for x in list_m)
+    list_m_by_name = client.get("/monitors", params={"tag": "api"}).json()
+    assert any(x["id"] == mid for x in list_m_by_name)
 
     up = client.get(f"/uptime/{mid}", params={"range": "1h"}).json()
     assert up["monitor_id"] == mid
@@ -102,6 +110,32 @@ def test_tags_uptime_alerts_and_incident(client: TestClient) -> None:
     d = client.delete(f"/alerts/{aid}")
     assert d.status_code == 204
     assert d.text == ""
+
+
+def test_monitor_tags_can_be_set_by_name_on_create_and_update(client: TestClient) -> None:
+    created = client.post(
+        "/monitors",
+        json={
+            "name": "Checkout",
+            "url": "https://example.com/checkout",
+            "interval_seconds": 60,
+            "timeout_seconds": 10,
+            "failure_threshold": 3,
+            "tags": ["prod", "service:payments"],
+        },
+    )
+    assert created.status_code == 200
+    payload = created.json()
+    assert sorted(t["name"] for t in payload["tags"]) == ["prod", "service:payments"]
+    mid = payload["id"]
+
+    filtered = client.get("/monitors", params={"tag": "prod"})
+    assert filtered.status_code == 200
+    assert any(m["id"] == mid for m in filtered.json())
+
+    updated = client.patch(f"/monitors/{mid}", json={"tags": ["staging"]})
+    assert updated.status_code == 200
+    assert [t["name"] for t in updated.json()["tags"]] == ["staging"]
 
 
 def test_get_incident_not_found(client: TestClient) -> None:
@@ -146,8 +180,13 @@ def test_public_status_endpoint_only_exposes_public_monitors(client: TestClient)
     by_slug = client.get("/status/public-api")
     assert by_slug.status_code == 200
     payload = by_slug.json()
-    assert payload["monitor"]["name"] == "Public API"
+    assert payload["name"] == "Public API"
+    assert payload["current_status"] == "unknown"
+    assert "uptime_24h_percent" in payload
+    assert isinstance(payload["recent_incidents"], list)
     assert payload["powered_by"] == "CheckStack"
+    assert by_slug.headers["cache-control"] == "public, max-age=30, stale-while-revalidate=60"
+    assert by_slug.headers["etag"].startswith("W/\"")
 
     not_found = client.get("/status/private-api")
     assert not_found.status_code == 404

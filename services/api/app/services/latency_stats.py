@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,7 +30,7 @@ def compute_latency_stats(
     window: str,
     now: datetime | None = None,
 ) -> dict:
-    now = now or datetime.now(UTC)
+    now = now or datetime.now(timezone.utc)
     start = _window_start(window, now)
     stmt = (
         select(CheckResult.id, CheckResult.ok, CheckResult.latency_ms)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -27,7 +27,7 @@ def get_uptime_series(
     monitor_id: int,
     range_key: str,
 ) -> dict[str, Any]:
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     start = _start_for_range(now, range_key)
     q = (
         select(CheckResult.id, CheckResult.ok, CheckResult.latency_ms, CheckResult.checked_at, CheckResult.status_code)

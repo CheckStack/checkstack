@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -49,17 +49,20 @@ def get_public_monitor_status(slug: str, response: Response, db: Session = Depen
         .all()
     )
 
-    # cache-friendly but short-lived because uptime status changes often
-    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=60"
-
     sla_24h = compute_sla(db, monitor.id, "24h")
 
+    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=60"
+    latest_change = monitor.last_checked_at or monitor.created_at
+    if recent_incidents:
+        latest_incident_ts = recent_incidents[0].resolved_at or recent_incidents[0].started_at
+        if latest_incident_ts and latest_incident_ts > latest_change:
+            latest_change = latest_incident_ts
+    response.headers["ETag"] = f'W/"{monitor.id}:{int(latest_change.timestamp())}"'
+
     return {
-        "monitor": {
-            "name": monitor.name,
-            "status": monitor.last_status or "unknown",
-            "uptime_24h_percent": sla_24h["uptime_percent"],
-        },
+        "name": monitor.name,
+        "current_status": monitor.last_status or "unknown",
+        "uptime_24h_percent": sla_24h["uptime_percent"],
         "recent_incidents": [
             {
                 "id": i.id,
@@ -71,7 +74,6 @@ def get_public_monitor_status(slug: str, response: Response, db: Session = Depen
             }
             for i in recent_incidents
         ],
-        "generated_at": datetime.now(UTC),
-        "cache_ttl_seconds": 30,
+        "generated_at": datetime.now(timezone.utc),
         "powered_by": "CheckStack",
     }

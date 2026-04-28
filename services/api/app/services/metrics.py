@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import ceil
 
 from sqlalchemy import case, func, select
@@ -26,7 +26,7 @@ def parse_metrics_range(range_key: str) -> str:
 
 def metrics_range_start(range_key: str, now: datetime | None = None) -> datetime:
     normalized = parse_metrics_range(range_key)
-    current = now or datetime.now(UTC)
+    current = now or datetime.now(timezone.utc)
     return current - _ALLOWED_RANGES[normalized]
 
 

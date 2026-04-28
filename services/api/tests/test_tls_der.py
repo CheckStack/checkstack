@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
@@ -12,7 +12,7 @@ from app.services.tls import _parse_der_leaf
 def test_parse_der_leaf_roundtrip() -> None:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "probe.test")])
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
