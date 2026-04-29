@@ -104,7 +104,8 @@ def list_monitors(
     tag_id: int | None = Query(default=None, description="filter by tag"),
     tag: str | None = Query(default=None, description="filter by tag name"),
     db: Session = Depends(get_db),
-, current_user: User = Depends(get_current_user)) -> list[MonitorRead]:
+    current_user: User = Depends(get_current_user),
+) -> list[MonitorRead]:
     query = db.query(Monitor).options(joinedload(Monitor.tags)).filter(Monitor.user_id == current_user.id)
     if tag_id is not None or tag is not None:
         query = query.join(Monitor.tags)
@@ -177,7 +178,7 @@ def get_monitor(monitor_id: int, db: Session = Depends(get_db), current_user: Us
     m = (
         db.query(Monitor)
         .options(joinedload(Monitor.tags))
-        .filter(Monitor.id == monitor_id)
+        .filter(Monitor.id == monitor_id, Monitor.user_id == current_user.id)
         .one_or_none()
     )
     if not m:
