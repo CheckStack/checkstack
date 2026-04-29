@@ -1,147 +1,58 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-
-import type { AlertConfig } from "@/lib/api";
-import { createAlert, deleteAlert, fetchAlerts } from "@/lib/api";
+import { createAlertChannel, createAlertRule, fetchAlertChannels, fetchMonitors, type AlertChannel, type Monitor } from "@/lib/api";
 
 export default function AlertsPage() {
-  const [items, setItems] = useState<AlertConfig[]>([]);
+  const [channels, setChannels] = useState<AlertChannel[]>([]);
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [slackUrl, setSlackUrl] = useState("");
-  const [emailTo, setEmailTo] = useState("");
+  const [type, setType] = useState<"slack" | "email" | "webhook">("slack");
+  const [target, setTarget] = useState("");
 
   const load = useCallback(async () => {
     setErr(null);
-    setItems(await fetchAlerts());
+    const [chs, mons] = await Promise.all([fetchAlertChannels(), fetchMonitors()]);
+    setChannels(chs);
+    setMonitors(mons);
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  return (
-    <div className="max-w-2xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-white">Alert channels</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Configure Slack webhooks and email recipients. SMTP is set via <code className="text-slate-300">SMTP_*</code>{" "}
-          environment variables on the API. Incidents from monitors with alerts enabled and matching these routes will
-          notify.
-        </p>
+  return <div className="space-y-6">
+    <h1 className="text-2xl font-semibold text-white">Alerts</h1>
+    {err ? <div className="text-rose-300 text-sm">{err}</div> : null}
+    <form className="space-y-2" onSubmit={async (e) => {
+      e.preventDefault();
+      try {
+        const config = type === "email" ? { to: target } : (type === "webhook" ? { url: target } : { webhook_url: target });
+        await createAlertChannel({ type, config, is_active: true });
+        setTarget("");
+        await load();
+      } catch (ex) { setErr(ex instanceof Error ? ex.message : "failed"); }
+    }}>
+      <select value={type} onChange={(e) => setType(e.target.value as any)} className="bg-surface-muted border border-white/10 p-2 rounded">
+        <option value="slack">Slack</option><option value="email">Email</option><option value="webhook">Webhook</option>
+      </select>
+      <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Destination" className="ml-2 bg-surface-muted border border-white/10 p-2 rounded" />
+      <button className="ml-2 rounded bg-accent px-3 py-2 text-slate-900">Add channel</button>
+    </form>
+
+    <ul className="space-y-2">{channels.map((c) => <li key={c.id} className="text-sm text-slate-200">#{c.id} {c.type}</li>)}</ul>
+
+    <h2 className="text-lg text-white">Quick rule setup (DOWN alerts)</h2>
+    <div className="space-y-2">{channels.map((c) => (
+      <div key={c.id} className="flex gap-2 items-center">
+        <span className="text-slate-300 text-sm">Channel #{c.id} {c.type}</span>
+        <select className="bg-surface-muted border border-white/10 p-1 rounded" onChange={async (e) => {
+          if (!e.target.value) return;
+          await createAlertRule({ channel_id: c.id, monitor_id: Number(e.target.value), trigger_type: "DOWN", is_active: true });
+          alert("Rule created");
+        }}>
+          <option value="">Attach to monitor...</option>
+          {monitors.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
       </div>
-
-      {err ? <div className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">{err}</div> : null}
-
-      <div className="space-y-4 rounded-xl border border-white/10 bg-surface-card p-6">
-        <h2 className="text-sm font-semibold text-white">Add Slack</h2>
-        <form
-          className="space-y-3"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setErr(null);
-            try {
-              await createAlert({ kind: "slack", name: "slack", config: { webhook_url: slackUrl }, enabled: true });
-              setSlackUrl("");
-              await load();
-            } catch (ex) {
-              setErr(ex instanceof Error ? ex.message : "failed");
-            }
-          }}
-        >
-          <label className="block text-xs text-slate-500">Incoming webhook URL</label>
-          <input
-            className="w-full rounded-md border border-white/10 bg-surface-muted px-3 py-2 text-sm text-slate-100"
-            onChange={(e) => setSlackUrl(e.target.value)}
-            placeholder="https://hooks.slack.com/services/..."
-            required
-            value={slackUrl}
-          />
-          <button
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-slate-950"
-            type="submit"
-            disabled={!slackUrl}
-          >
-            Add Slack
-          </button>
-        </form>
-      </div>
-
-      <div className="space-y-4 rounded-xl border border-white/10 bg-surface-card p-6">
-        <h2 className="text-sm font-semibold text-white">Add email</h2>
-        <form
-          className="space-y-3"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setErr(null);
-            try {
-              await createAlert({ kind: "email", name: "email", config: { to: emailTo }, enabled: true });
-              setEmailTo("");
-              await load();
-            } catch (ex) {
-              setErr(ex instanceof Error ? ex.message : "failed");
-            }
-          }}
-        >
-          <label className="block text-xs text-slate-500">To address</label>
-          <input
-            className="w-full rounded-md border border-white/10 bg-surface-muted px-3 py-2 text-sm text-slate-100"
-            onChange={(e) => setEmailTo(e.target.value)}
-            placeholder="oncall@example.com"
-            required
-            type="email"
-            value={emailTo}
-          />
-          <button
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-slate-950"
-            type="submit"
-            disabled={!emailTo}
-          >
-            Add email
-          </button>
-        </form>
-      </div>
-
-      <div>
-        <h2 className="text-sm font-semibold text-slate-300">Configured</h2>
-        <ul className="mt-2 space-y-2">
-          {items.length === 0 ? <li className="text-sm text-slate-500">No channels yet.</li> : null}
-          {items.map((a) => (
-            <li
-              className="flex items-center justify-between rounded-lg border border-white/10 bg-surface-card px-4 py-2 text-sm"
-              key={a.id}
-            >
-              <div>
-                <div className="font-medium text-white">
-                  {a.kind} <span className="text-slate-500">· {a.name}</span>{" "}
-                  <span
-                    className={a.enabled ? "text-emerald-300" : "text-amber-300"}
-                  >{a.enabled ? "on" : "off"}</span>
-                </div>
-                <div className="text-xs text-slate-500">
-                  {a.kind === "slack" ? (a.config.webhook_url as string)?.slice(0, 64) : String(a.config.to)}…
-                </div>
-              </div>
-              <button
-                className="text-xs text-rose-300 hover:underline"
-                onClick={async () => {
-                  if (!confirm("Remove this channel?")) return;
-                  setErr(null);
-                  try {
-                    await deleteAlert(a.id);
-                    await load();
-                  } catch (ex) {
-                    setErr(ex instanceof Error ? ex.message : "delete failed");
-                  }
-                }}
-                type="button"
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
+    ))}</div>
+  </div>;
 }

@@ -25,5 +25,9 @@ class Settings(BaseSettings):
     slack_webhook_url: str = ""
     slack_default_webhook_url: str = ""
 
+    jwt_secret_key: str = "change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_exp_minutes: int = 60
+
 
 settings = Settings()

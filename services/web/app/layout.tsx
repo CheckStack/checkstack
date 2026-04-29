@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 >
                   Status
                 </Link>
-              </nav>
+              <Link className="rounded-md px-2 py-1 text-slate-300 hover:bg-white/5 hover:text-white" href="/login">Login</Link></nav>
             </div>
             <a
               className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 hover:border-accent/40 hover:text-white"

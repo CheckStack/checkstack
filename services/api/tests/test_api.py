@@ -17,6 +17,9 @@ def client() -> TestClient:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with TestClient(app) as c:
+        c.post("/auth/register", json={"email": "test@example.com", "password": "secret123"})
+        tok = c.post("/auth/login", json={"email": "test@example.com", "password": "secret123"}).json()["access_token"]
+        c.headers.update({"Authorization": f"Bearer {tok}"})
         yield c
 
 
@@ -102,14 +105,13 @@ def test_tags_uptime_alerts_and_incident(client: TestClient) -> None:
     assert "sla" in st
 
     ar = client.post(
-        "/alerts",
-        json={"kind": "email", "name": "a", "config": {"to": "x@y.com"}, "enabled": True, "monitor_id": None},
+        "/alert-channels",
+        json={"type": "email", "config": {"to": "x@y.com"}, "is_active": True},
     )
     assert ar.status_code == 200
-    aid = ar.json()["id"]
-    d = client.delete(f"/alerts/{aid}")
-    assert d.status_code == 204
-    assert d.text == ""
+    channel_id = ar.json()["id"]
+    rr = client.post("/alert-rules", json={"channel_id": channel_id, "trigger_type": "DOWN", "monitor_id": mid, "is_active": True})
+    assert rr.status_code == 200
 
 
 def test_monitor_tags_can_be_set_by_name_on_create_and_update(client: TestClient) -> None:

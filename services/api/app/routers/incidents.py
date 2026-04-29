@@ -5,6 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.models.incident import Incident
 from app.models.monitor import Monitor
 from app.models.uptime_log import UptimeLog
@@ -15,16 +17,25 @@ router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
 @router.get("", response_model=list[IncidentRead])
-def list_incidents(db: Session = Depends(get_db)) -> list[Incident]:
-    return db.query(Incident).order_by(Incident.started_at.desc()).limit(200).all()
+def list_incidents(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> list[Incident]:
+    return (
+        db.query(Incident)
+        .join(Monitor, Monitor.id == Incident.monitor_id)
+        .filter(Monitor.user_id == current_user.id)
+        .order_by(Incident.started_at.desc())
+        .limit(200)
+        .all()
+    )
 
 
 @router.get("/{incident_id}", response_model=IncidentDetailRead)
-def get_incident(incident_id: int, db: Session = Depends(get_db)) -> IncidentDetailRead:
+def get_incident(incident_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> IncidentDetailRead:
     i = db.get(Incident, incident_id)
     if not i:
         raise HTTPException(404, "not found")
     m = db.get(Monitor, i.monitor_id)
+    if not m or m.user_id != current_user.id:
+        raise HTTPException(404, "not found")
     if not m:
         raise HTTPException(404, "not found")
     window_end = i.resolved_at or datetime.now(timezone.utc)
@@ -98,9 +109,12 @@ def get_incident(incident_id: int, db: Session = Depends(get_db)) -> IncidentDet
 
 
 @router.post("/{incident_id}/resolve", response_model=IncidentRead)
-async def resolve_incident(incident_id: int, db: Session = Depends(get_db)) -> Incident:
+async def resolve_incident(incident_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> Incident:
     incident = db.get(Incident, incident_id)
     if not incident:
+        raise HTTPException(404, detail="not found")
+    monitor = db.get(Monitor, incident.monitor_id)
+    if not monitor or monitor.user_id != current_user.id:
         raise HTTPException(404, detail="not found")
     if incident.status == "resolved":
         return incident
@@ -112,7 +126,6 @@ async def resolve_incident(incident_id: int, db: Session = Depends(get_db)) -> I
     db.add(incident)
     db.commit()
     db.refresh(incident)
-    monitor = db.get(Monitor, incident.monitor_id)
     if monitor is not None:
         await send_incident_resolved_alert(db, incident, monitor)
     return incident

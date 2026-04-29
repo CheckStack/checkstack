@@ -1,3 +1,4 @@
+import { getToken } from "./auth";
 function apiBase(): string {
   const pub = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
   if (pub) {
@@ -17,6 +18,19 @@ export function apiUrl(path: string): string {
   return `/api${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+
+
+function authHeaders(init?: HeadersInit): HeadersInit {
+  const token = getToken();
+  const base: Record<string, string> = {};
+  if (init && !(init instanceof Headers) && !Array.isArray(init)) Object.assign(base, init as Record<string, string>);
+  if (token) base.Authorization = `Bearer ${token}`;
+  return base;
+}
+
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  return fetch(apiUrl(input), { ...init, headers: authHeaders(init?.headers), cache: init?.cache ?? "no-store" });
+}
 export type Tag = {
   id: number;
   name: string;
@@ -150,6 +164,22 @@ export type PublicMonitorDetailStatus = {
   powered_by: string;
 };
 
+export type AlertChannel = {
+  id: number;
+  type: "slack" | "email" | "webhook";
+  config: Record<string, unknown>;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type AlertRule = {
+  id: number;
+  monitor_id: number | null;
+  channel_id: number;
+  trigger_type: "DOWN" | "RECOVERY";
+  is_active: boolean;
+};
+
 export type AlertConfig = {
   id: number;
   kind: "slack" | "email";
@@ -170,12 +200,12 @@ async function parseJson<T>(res: Response): Promise<T> {
 
 export async function fetchMonitors(tagId?: number | null): Promise<Monitor[]> {
   const q = tagId != null && tagId > 0 ? `?tag_id=${tagId}` : "";
-  const res = await fetch(apiUrl(`/monitors${q}`), { cache: "no-store" });
+  const res = await apiFetch(`/monitors${q}`);
   return parseJson<Monitor[]>(res);
 }
 
 export async function fetchMonitor(id: number): Promise<Monitor> {
-  const res = await fetch(apiUrl(`/monitors/${id}`), { cache: "no-store" });
+  const res = await apiFetch(`/monitors/${id}`);
   return parseJson<Monitor>(res);
 }
 
@@ -188,7 +218,7 @@ export async function createMonitor(payload: {
   alerts_enabled?: boolean;
   tag_ids?: number[];
 }): Promise<Monitor> {
-  const res = await fetch(apiUrl("/monitors"), {
+  const res = await apiFetch("/monitors", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -212,7 +242,7 @@ export async function updateMonitor(
     tag_ids: number[];
   }>,
 ): Promise<Monitor> {
-  const res = await fetch(apiUrl(`/monitors/${id}`), {
+  const res = await apiFetch(`/monitors/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -221,19 +251,19 @@ export async function updateMonitor(
 }
 
 export async function deleteMonitor(id: number): Promise<void> {
-  const res = await fetch(apiUrl(`/monitors/${id}`), { method: "DELETE" });
+  const res = await apiFetch(`/monitors/${id}`, { method: "DELETE" });
   if (!res.ok) {
     throw new Error(await res.text());
   }
 }
 
 export async function fetchSla(id: number, window: "24h" | "7d"): Promise<Sla> {
-  const res = await fetch(apiUrl(`/monitors/${id}/sla?window=${window}`), { cache: "no-store" });
+  const res = await apiFetch(`/monitors/${id}/sla?window=${window}`);
   return parseJson<Sla>(res);
 }
 
 export async function fetchMonitorStats(id: number, window: "24h" | "7d" = "24h"): Promise<MonitorStats> {
-  const res = await fetch(apiUrl(`/monitors/${id}/stats?window=${window}`), { cache: "no-store" });
+  const res = await apiFetch(`/monitors/${id}/stats?window=${window}`);
   return parseJson<MonitorStats>(res);
 }
 
@@ -241,7 +271,7 @@ export async function fetchUptime(
   id: number,
   range: "1h" | "24h" | "7d" | "30d" = "24h",
 ): Promise<UptimeSeries> {
-  const res = await fetch(apiUrl(`/uptime/${id}?range=${encodeURIComponent(range)}`), { cache: "no-store" });
+  const res = await apiFetch(`/uptime/${id}?range=${encodeURIComponent(range)}`);
   const j = await parseJson<{
     monitor_id: number;
     range: string;
@@ -253,7 +283,7 @@ export async function fetchUptime(
 }
 
 export async function fetchChecks(id: number): Promise<CheckResult[]> {
-  const res = await fetch(apiUrl(`/monitors/${id}/checks?limit=200`), { cache: "no-store" });
+  const res = await apiFetch(`/monitors/${id}/checks?limit=200`);
   return parseJson<CheckResult[]>(res);
 }
 
@@ -322,3 +352,20 @@ export async function fetchPublicStatusBySlug(slug: string): Promise<PublicMonit
     await fetch(apiUrl(`/status/${encodeURIComponent(slug)}`), { cache: "no-store" }),
   );
 }
+
+
+export async function login(email: string, password: string): Promise<{access_token: string; token_type: string}> {
+  const res = await fetch(apiUrl("/auth/login"), { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({email,password}) });
+  return parseJson(res);
+}
+
+export async function register(email: string, password: string): Promise<{id:number; email:string}> {
+  const res = await fetch(apiUrl("/auth/register"), { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({email,password}) });
+  return parseJson(res);
+}
+
+export async function fetchAlertChannels(): Promise<AlertChannel[]> { const res = await apiFetch("/alert-channels"); return parseJson(res); }
+export async function createAlertChannel(payload: {type:"slack"|"email"|"webhook"; config: Record<string, unknown>; is_active?: boolean;}): Promise<AlertChannel> {
+ const res = await apiFetch("/alert-channels", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)}); return parseJson(res); }
+export async function createAlertRule(payload:{monitor_id:number|null; channel_id:number; trigger_type:"DOWN"|"RECOVERY"; is_active?:boolean;}): Promise<AlertRule> {
+ const res = await apiFetch("/alert-rules", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)}); return parseJson(res); }
