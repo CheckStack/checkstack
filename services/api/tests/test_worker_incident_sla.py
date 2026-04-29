@@ -121,8 +121,7 @@ async def test_uptime_worker_run_once_creates_incident_without_real_http(monkeyp
 
     monkeypatch.setattr(uptime_worker, "check_url", fake_check_url)
     monkeypatch.setattr(uptime_worker, "probe_tls_certificate", fake_tls_probe)
-    monkeypatch.setattr(uptime_worker, "send_incident_opened_alert", noop_alert)
-    monkeypatch.setattr(uptime_worker, "send_incident_resolved_alert", noop_alert)
+    monkeypatch.setattr(uptime_worker, "enqueue_status_change_alerts", noop_alert)
 
     with SessionLocal() as db:
         db.add(

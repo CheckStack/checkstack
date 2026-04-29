@@ -164,6 +164,55 @@ def ensure_alert_config_table(engine: Engine) -> None:
             )
 
 
+
+
+def ensure_alerting_tables(engine: Engine) -> None:
+    insp = inspect(engine)
+    is_pg = engine.dialect.name == "postgresql"
+    with engine.begin() as conn:
+        if not insp.has_table("alert_channels"):
+            if is_pg:
+                conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS alert_channels (
+                    id SERIAL PRIMARY KEY,
+                    type VARCHAR(32) NOT NULL,
+                    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    is_active BOOLEAN NOT NULL DEFAULT true,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """))
+            else:
+                conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS alert_channels (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    type VARCHAR(32) NOT NULL,
+                    config JSON NOT NULL DEFAULT ('{}'),
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """))
+        if not insp.has_table("alert_rules"):
+            if is_pg:
+                conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS alert_rules (
+                    id SERIAL PRIMARY KEY,
+                    monitor_id INTEGER NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                    channel_id INTEGER NOT NULL REFERENCES alert_channels(id) ON DELETE CASCADE,
+                    trigger_type VARCHAR(16) NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT true
+                );
+                """))
+            else:
+                conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS alert_rules (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    monitor_id INTEGER NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                    channel_id INTEGER NOT NULL REFERENCES alert_channels(id) ON DELETE CASCADE,
+                    trigger_type VARCHAR(16) NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1
+                );
+                """))
+
 def ensure_uptime_log_table(engine: Engine) -> None:
     insp = inspect(engine)
     is_pg = engine.dialect.name == "postgresql"
@@ -225,4 +274,5 @@ def run_migrations(engine: Engine) -> None:
     ensure_incident_columns(engine)
     ensure_tag_tables(engine)
     ensure_alert_config_table(engine)
+    ensure_alerting_tables(engine)
     ensure_uptime_log_table(engine)

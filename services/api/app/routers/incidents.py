@@ -5,6 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.models.incident import Incident
 from app.models.monitor import Monitor
 from app.models.uptime_log import UptimeLog
@@ -15,13 +17,13 @@ router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
 @router.get("", response_model=list[IncidentRead])
-def list_incidents(db: Session = Depends(get_db)) -> list[Incident]:
-    return db.query(Incident).order_by(Incident.started_at.desc()).limit(200).all()
+def list_incidents(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> list[Incident]:
+    return db.query(Incident).filter(Incident.user_id == current_user.id).order_by(Incident.started_at.desc()).limit(200).all()
 
 
 @router.get("/{incident_id}", response_model=IncidentDetailRead)
-def get_incident(incident_id: int, db: Session = Depends(get_db)) -> IncidentDetailRead:
-    i = db.get(Incident, incident_id)
+def get_incident(incident_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> IncidentDetailRead:
+    i = db.query(Incident).filter(Incident.id == incident_id, Incident.user_id == current_user.id).one_or_none()
     if not i:
         raise HTTPException(404, "not found")
     m = db.get(Monitor, i.monitor_id)
@@ -98,8 +100,8 @@ def get_incident(incident_id: int, db: Session = Depends(get_db)) -> IncidentDet
 
 
 @router.post("/{incident_id}/resolve", response_model=IncidentRead)
-async def resolve_incident(incident_id: int, db: Session = Depends(get_db)) -> Incident:
-    incident = db.get(Incident, incident_id)
+async def resolve_incident(incident_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> Incident:
+    incident = db.query(Incident).filter(Incident.id == incident_id, Incident.user_id == current_user.id).one_or_none()
     if not incident:
         raise HTTPException(404, detail="not found")
     if incident.status == "resolved":

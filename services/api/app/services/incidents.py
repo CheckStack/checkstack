@@ -54,6 +54,8 @@ def maybe_create_incident(
     summary = build_incident_summary(monitor, status_code, error_message, monitor.consecutive_failures)
     incident = Incident(
         monitor_id=monitor.id,
+        user_id=monitor.user_id,
+        org_id=monitor.org_id,
         title=title,
         summary=summary,
         status="open",

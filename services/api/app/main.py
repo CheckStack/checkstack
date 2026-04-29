@@ -8,6 +8,7 @@ from app.database import Base, engine
 from app.db_migrate import run_migrations
 from app.routers import (
     alerts,
+    auth,
     health,
     incidents,
     monitors,
@@ -38,6 +39,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(public_status.router)
 app.include_router(public_status.status_router)
 app.include_router(monitors.router)

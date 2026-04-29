@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.models.monitor import Monitor
 from app.services.uptime_series import get_uptime_series
 
@@ -19,8 +21,9 @@ def get_uptime(
         alias="range",
     ),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    m = db.get(Monitor, monitor_id)
+    m = db.query(Monitor).filter(Monitor.id == monitor_id, Monitor.user_id == current_user.id).one_or_none()
     if not m:
         raise HTTPException(404, "monitor not found")
     r = (time_range or "24h").lower()
